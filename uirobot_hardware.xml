@@ -1,0 +1,9 @@
+<library path="uirobot_hardware">
+  <class name="uirobot_hardware/UirobotHardware"
+         type="uirobot_hardware::UirobotHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      The UI Robot Motors system interface.
+    </description>
+  </class>
+</library>
