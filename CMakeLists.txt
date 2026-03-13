@@ -29,6 +29,9 @@ add_library(
   src/uirobot_hardware.cpp
   src/serial_port.cpp
 )
+target_link_libraries(uirobot_hardware
+  serial
+)
 target_include_directories(
   ${PROJECT_NAME}
   PRIVATE

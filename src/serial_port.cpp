@@ -118,7 +118,7 @@ bool SerialPort::close() {
 std::vector<uint8_t> SerialPort::read_and_write(const std::vector<uint8_t>& command) {
   try {
     port_.Write(command);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     LibSerial::DataBuffer buffer;
     port_.Read(buffer, 16, 1000);
     std::vector<uint8_t> response(buffer.begin(), buffer.end());

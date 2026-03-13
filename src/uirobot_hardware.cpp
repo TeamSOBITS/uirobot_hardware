@@ -19,6 +19,8 @@
 namespace uirobot_hardware
 {
 constexpr const char * kUirobotHardware = "UirobotHardware";
+constexpr const uint8_t header_ = 0xAD; // 0xAA - TODO: CRC mode...
+constexpr const uint8_t footer_ = 0xCC;
 
 constexpr const char * const kExtraJointParameters[] = {
   "Max_Velocity", // TODO : set the value for motor...
@@ -149,6 +151,35 @@ std::vector<hardware_interface::StateInterface> UirobotHardware::export_state_in
   }
 
   return state_interfaces;
+}
+
+std::vector<hardware_interface::CommandInterface> UirobotHardware::export_command_interfaces()
+{
+  RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "export_command_interfaces");
+
+  std::vector<hardware_interface::CommandInterface> command_interfaces;
+
+  for (uint i = 0; i < info_.joints.size(); i++) {
+    command_interfaces.emplace_back(
+      hardware_interface::CommandInterface(
+        info_.joints[i].name,
+        hardware_interface::HW_IF_POSITION,
+        &joints_[i].command.position));
+
+    command_interfaces.emplace_back(
+      hardware_interface::CommandInterface(
+        info_.joints[i].name,
+        hardware_interface::HW_IF_VELOCITY,
+        &joints_[i].command.velocity));
+
+    command_interfaces.emplace_back(
+      hardware_interface::CommandInterface(
+        info_.joints[i].name,
+        hardware_interface::HW_IF_EFFORT,
+        &joints_[i].command.effort));
+  }
+
+  return command_interfaces;
 }
 
 CallbackReturn UirobotHardware::on_activate(
@@ -311,6 +342,11 @@ CallbackReturn UirobotHardware::set_joint_positions()
     std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
 
     auto res = ser_->read_and_write(cmd);
+    // res : TODO Check the control is Okay?
+
+    cmd = create_commands("move", joint_ids_[i]);
+
+    res = ser_->read_and_write(cmd);
     (void)res; // TODO Check the control is Okay?
 
     joints_[i].prev_command.position = joints_[i].command.position;

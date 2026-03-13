@@ -91,8 +91,6 @@ private:
   bool use_dummy_{false};
 
   std::unique_ptr<uirobot_driver::SerialPort> ser_;
-  uint8_t header_ = 0xAD; // 0xAA - TODO: CRC mode...
-  uint8_t footer_ = 0xCC;
 };
 }  // namespace uirobot_hardware
 
