@@ -21,8 +21,7 @@ namespace uirobot_hardware
 constexpr const char * kUirobotHardware = "UirobotHardware";
 
 constexpr const char * const kExtraJointParameters[] = {
-  "Min_Value",
-  "Max_Value",
+  "Max_Velocity",
 };
 
 CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & info)
@@ -116,6 +115,7 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State & /* 
 
   enable_torque(false);
   set_joint_params();
+  get_joint_params();
   // Ideally torque should be enabled in on_activate(), but this appears to cause issues 
   // due to conflict with RT loop read/write calls, so it is here instead
   enable_torque(true);
@@ -296,6 +296,16 @@ CallbackReturn UirobotHardware::set_joint_params()
             kUirobotHardware), "%s set to %d for joint %d", paramName, value, i);
       }
     }
+  }
+  return CallbackReturn::SUCCESS;
+}
+
+CallbackReturn UirobotHardware::get_joint_params()
+{
+  for (uint i = 0; i < joints_.size(); ++i) {
+    std::vector<uint8_t> cmd = create_commands("cpr", joint_ids_[i]);
+    std::vector<uint8_t> res = ser_->read_and_write(cmd);
+    joints_[i].cpr = analyze_cmd(res, "cpr");
   }
   return CallbackReturn::SUCCESS;
 }

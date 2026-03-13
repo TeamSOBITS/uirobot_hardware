@@ -77,6 +77,7 @@ private:
 
   CallbackReturn set_joint_positions();
   CallbackReturn set_joint_params();
+  CallbackReturn get_joint_params();
 
   std::vector<uint8_t> create_commands(std::string mode, int id, double pos=0.0, double vel=0.0);
   int32_t analyze_cmd(std::vector<uint8_t> cmd, std::string mode);
