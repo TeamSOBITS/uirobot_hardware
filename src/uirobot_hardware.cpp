@@ -21,7 +21,7 @@ namespace uirobot_hardware
 constexpr const char * kUirobotHardware = "UirobotHardware";
 
 constexpr const char * const kExtraJointParameters[] = {
-  "Max_Velocity",
+  "Max_Velocity", // TODO : set the value for motor...
 };
 
 CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & info)
@@ -47,6 +47,15 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
 
     if (info_.joints[i].parameters.find("gear_ratio") != info_.joints[i].parameters.end()) 
       joints_[i].gear_ratio = std::stod(info_.joints[i].parameters.at("gear_ratio"));
+
+    if (info_.joints[i].parameters.find("position_kp") != info_.joints[i].parameters.end()) 
+      joints_[i].kp = std::stod(info_.joints[i].parameters.at("position_kp"));
+
+    if (info_.joints[i].parameters.find("stop_threshold") != info_.joints[i].parameters.end()) 
+      joints_[i].stop_threshold = std::stod(info_.joints[i].parameters.at("stop_threshold"));
+
+    if (info_.joints[i].parameters.find("max_velocity") != info_.joints[i].parameters.end()) 
+      joints_[i].max_vel = std::stod(info_.joints[i].parameters.at("max_velocity"));
 
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_id %d: %d", i, joint_ids_[i]);
   }
@@ -278,8 +287,34 @@ return_type UirobotHardware::reset_command()
 
 CallbackReturn UirobotHardware::set_joint_positions()
 {
-  std::vector<int32_t> commands(joint_ids_.size(), 0);
-  std::vector<uint8_t> ids(joint_ids_.size(), 0);
+  for (size_t i = 0; i < joints_.size(); i++) {
+
+    double target = joints_[i].command.position;
+    double current = joints_[i].state.position;
+
+    if (std::isnan(target) || std::isnan(current)) continue;
+
+    double error = target - current;
+
+    double vel =  joints_[i].kp * error;
+
+    // stop near target
+    if (std::abs(error) < joints_[i].stop_threshold)
+      vel = 0.0;
+
+    // velocity limit: TODO set for motor...
+    vel = std::clamp(vel, -std::fabs(joints_[i].max_vel * joints_[i].gear_ratio), std::fabs(joints_[i].max_vel * joints_[i].gear_ratio));
+
+    // rad/s >> pulse/s
+    double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2*M_PI);
+
+    std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
+
+    auto res = ser_->read_and_write(cmd);
+    (void)res; // TODO Check the control is Okay?
+
+    joints_[i].prev_command.position = joints_[i].command.position;
+  }
 
   return CallbackReturn::SUCCESS;
 }
@@ -338,10 +373,10 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
   } else if (mode == "set_vel") {
     cmd[2] = 0x9E;
     cmd[3] = 0x04;
-    cmd[4] = (static_cast<int>(vel) & 0xFF);
-    cmd[5] = ((static_cast<int>(vel) >> 8) & 0xFF);
-    cmd[6] = ((static_cast<int>(vel) >> 16) & 0xFF);
-    cmd[7] = ((static_cast<int>(vel) >> 24) & 0xFF);
+    cmd[4] = (static_cast<int32_t>(vel) & 0xFF);
+    cmd[5] = ((static_cast<int32_t>(vel) >> 8) & 0xFF);
+    cmd[6] = ((static_cast<int32_t>(vel) >> 16) & 0xFF);
+    cmd[7] = ((static_cast<int32_t>(vel) >> 24) & 0xFF);
   } else if (mode == "move") {
     cmd[2] = 0x96;
   } else {
