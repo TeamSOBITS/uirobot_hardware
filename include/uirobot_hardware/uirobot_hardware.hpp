@@ -33,7 +33,7 @@ struct Joint
   JointValue prev_command{};
   double gear_ratio{1.0};
   double kp{1.0};
-  double stop_threshold{0.01};
+  // double stop_threshold{0.01};
   double max_vel{0.5};
   int cpr{1}; // Counts Per Revolution
 
