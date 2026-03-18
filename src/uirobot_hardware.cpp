@@ -325,27 +325,27 @@ CallbackReturn UirobotHardware::set_joint_positions()
 
     if (std::isnan(target) || std::isnan(current)) continue;
 
-    double error = target - current;
+    double vel = (target - current) * joints_[i].kp;
 
-    double vel =  joints_[i].kp * error;
-
-    // stop near target
-    if (std::abs(error) < joints_[i].stop_threshold)
-      vel = 0.0;
-
+    // [rad/s] : gear_ratio is have to be considered because the motor is connected with gear...
     // velocity limit: TODO set for motor...
     vel = std::clamp(vel, -std::fabs(joints_[i].max_vel * joints_[i].gear_ratio), std::fabs(joints_[i].max_vel * joints_[i].gear_ratio));
 
     // rad/s >> pulse/s
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2*M_PI);
+  
+    // rad >> pulse
+    double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2*M_PI);
 
     std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
-
     auto res = ser_->read_and_write(cmd);
     // res : TODO Check the control is Okay?
 
-    cmd = create_commands("move", joint_ids_[i]);
+    cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
+    res = ser_->read_and_write(cmd);
+    // res : TODO Check the control is Okay?
 
+    cmd = create_commands("move", joint_ids_[i]);
     res = ser_->read_and_write(cmd);
     (void)res; // TODO Check the control is Okay?
 
@@ -383,7 +383,6 @@ CallbackReturn UirobotHardware::get_joint_params()
 
 std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, double pos, double vel)
 {
-  (void)pos; // TODO pos...
 
   std::vector<uint8_t> cmd = {header_, static_cast<std::uint8_t>(id)};
   cmd.insert(cmd.end(), 2, static_cast<std::uint8_t>(NAN));
@@ -406,6 +405,13 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[2] = 0xBD;
     cmd[3] = 0x01;
     cmd[4] = 0x04;
+  } else if (mode == "set_pos") {
+    cmd[2] = 0x9F;
+    cmd[3] = 0x04;
+    cmd[4] = (static_cast<int32_t>(pos) & 0xFF);
+    cmd[5] = ((static_cast<int32_t>(pos) >> 8) & 0xFF);
+    cmd[6] = ((static_cast<int32_t>(pos) >> 16) & 0xFF);
+    cmd[7] = ((static_cast<int32_t>(pos) >> 24) & 0xFF);
   } else if (mode == "set_vel") {
     cmd[2] = 0x9E;
     cmd[3] = 0x04;
