@@ -29,8 +29,9 @@ constexpr const char * const kExtraJointParameters[] = {
 CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & info)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "on_init");
-  if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS)
+  if (hardware_interface::SystemInterface::on_init(info) != CallbackReturn::SUCCESS) {
     return CallbackReturn::ERROR;
+  }
 
   joints_.resize(info_.joints.size(), Joint());
   joint_ids_.resize(info_.joints.size(), 0);
@@ -47,22 +48,21 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
     joints_[i].prev_command.velocity = joints_[i].command.velocity;
     joints_[i].prev_command.effort = joints_[i].command.effort;
 
-    if (info_.joints[i].parameters.find("gear_ratio") != info_.joints[i].parameters.end()) 
+    if (info_.joints[i].parameters.find("gear_ratio") != info_.joints[i].parameters.end()) {
       joints_[i].gear_ratio = std::stod(info_.joints[i].parameters.at("gear_ratio"));
+    }
 
-    if (info_.joints[i].parameters.find("position_kp") != info_.joints[i].parameters.end()) 
+    if (info_.joints[i].parameters.find("position_kp") != info_.joints[i].parameters.end()) {
       joints_[i].kp = std::stod(info_.joints[i].parameters.at("position_kp"));
+    }
 
-    // if (info_.joints[i].parameters.find("stop_threshold") != info_.joints[i].parameters.end()) 
-    //   joints_[i].stop_threshold = std::stod(info_.joints[i].parameters.at("stop_threshold"));
-
-    if (info_.joints[i].parameters.find("max_velocity") != info_.joints[i].parameters.end()) 
+    if (info_.joints[i].parameters.find("max_velocity") != info_.joints[i].parameters.end()) {
       joints_[i].max_vel = std::stod(info_.joints[i].parameters.at("max_velocity"));
+    }
 
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_id %d: %d", i, joint_ids_[i]);
   }
 
-  // Mimic Initialization
   for (const auto & mimic_data : info_.mimic_joints) {
     uint mimic_idx = mimic_data.joint_index;
     uint src_idx = mimic_data.mimicked_joint_index;
@@ -72,19 +72,20 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
       joints_[mimic_idx].mimic_multiplier = mimic_data.multiplier;
       joints_[mimic_idx].mimic_offset = mimic_data.offset;
 
-      RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), 
-        "Mimic configured: Joint '%s' (index %d) follows '%s' (index %d) [mult: %f, offset: %f]", 
+      RCLCPP_INFO(
+        rclcpp::get_logger(kUirobotHardware),
+        "Mimic configured: Joint '%s' (index %d) follows '%s' (index %d) [mult: %f, offset: %f]",
         info_.joints[mimic_idx].name.c_str(), mimic_idx,
         info_.joints[src_idx].name.c_str(), src_idx,
         joints_[mimic_idx].mimic_multiplier, joints_[mimic_idx].mimic_offset);
     } else {
-      RCLCPP_ERROR(rclcpp::get_logger(kUirobotHardware), 
-        "Invalid mimic configuration: mimic_index %d or source_index %d out of range", 
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "Invalid mimic configuration: mimic_index %d or source_index %d out of range",
         mimic_idx, src_idx);
     }
   }
 
-  // TODO: does this motors have to use the mode...?
   if (
     info_.hardware_parameters.find("use_dummy") != info_.hardware_parameters.end() &&
     (info_.hardware_parameters.at("use_dummy") == "true" ||
@@ -107,7 +108,7 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State & /* previous_state */) 
+CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "configure");
 
@@ -127,8 +128,6 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State & /* 
   enable_torque(false);
   set_joint_params();
   get_joint_params();
-  // Ideally torque should be enabled in on_activate(), but this appears to cause issues 
-  // due to conflict with RT loop read/write calls, so it is here instead
   enable_torque(true);
 
   return CallbackReturn::SUCCESS;
@@ -182,8 +181,7 @@ std::vector<hardware_interface::CommandInterface> UirobotHardware::export_comman
   return command_interfaces;
 }
 
-CallbackReturn UirobotHardware::on_activate(
-  const rclcpp_lifecycle::State & /* previous_state */)
+CallbackReturn UirobotHardware::on_activate(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "activate");
   reset_command();
@@ -191,30 +189,33 @@ CallbackReturn UirobotHardware::on_activate(
   return CallbackReturn::SUCCESS;
 }
 
-CallbackReturn UirobotHardware::on_deactivate(
-  const rclcpp_lifecycle::State & /* previous_state */)
+CallbackReturn UirobotHardware::on_deactivate(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "deactivate");
   return CallbackReturn::SUCCESS;
 }
 
-return_type UirobotHardware::read(
-  const rclcpp::Time & /* time */,
-  const rclcpp::Duration & /* period */)
+return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &)
 {
   if (use_dummy_) {
     return return_type::OK;
   }
 
-  for(uint i = 0; i < joint_ids_.size(); i++){
+  for (uint i = 0; i < joint_ids_.size(); i++) {
     std::vector<uint8_t> cmd = create_commands("get_pos", joint_ids_[i]);
     std::vector<uint8_t> res = ser_->read_and_write(cmd);
-    joints_[i].state.position = ((float)analyze_cmd(res, "get_pos")) / joints_[i].cpr * (2*M_PI) / joints_[i].gear_ratio;
-    // joints_[i].state.velocity = 0.0; // TODO
-    // joints_[i].state.effort = 0.0; // TODO
+    if (res.size() < 12) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "No valid response from UIROBOT gateway for joint '%s'",
+        info_.joints[i].name.c_str());
+      return return_type::ERROR;
+    }
+    joints_[i].state.position =
+      (static_cast<float>(analyze_cmd(res, "get_pos")) / joints_[i].cpr * (2 * M_PI)) /
+      joints_[i].gear_ratio;
   }
 
-  // Update Mimic States
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
@@ -222,12 +223,11 @@ return_type UirobotHardware::read(
 
       joint.state.position = (m * src.state.position) + joint.mimic_offset;
       joint.state.velocity = m * src.state.velocity;
-      
-      // Physically consistent Effort: T_mimic = T_src / multiplier
+
       if (std::abs(m) > 1e-6) {
         joint.state.effort = src.state.effort / m;
       } else {
-        joint.state.effort = 0.0; // Avoid division by zero, but this is a non-physical case
+        joint.state.effort = 0.0;
       }
     }
   }
@@ -235,11 +235,8 @@ return_type UirobotHardware::read(
   return return_type::OK;
 }
 
-return_type UirobotHardware::write(
-  const rclcpp::Time & /* time */,
-  const rclcpp::Duration & /* period */)
+return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration &)
 {
-  // Update commands for mimic joints if they are linked to physical IDs
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
@@ -247,22 +244,21 @@ return_type UirobotHardware::write(
 
       joint.command.position = (m * src.command.position) + joint.mimic_offset;
       joint.command.velocity = m * src.command.velocity;
-      
+
       if (std::abs(m) > 1e-6) {
         joint.command.effort = src.command.effort / m;
       } else {
-        joint.command.effort = 0.0; // Avoid division by zero, but this is a non-physical case
+        joint.command.effort = 0.0;
       }
     }
   }
 
-  // If in dummy mode, just copy commands to states and return
   if (use_dummy_) {
     for (auto & joint : joints_) {
       if (!std::isnan(joint.command.position)) joint.state.position = joint.command.position;
       if (!std::isnan(joint.command.velocity)) joint.state.velocity = joint.command.velocity;
-      if (!std::isnan(joint.command.effort))   joint.state.effort   = joint.command.effort;
-      
+      if (!std::isnan(joint.command.effort)) joint.state.effort = joint.command.effort;
+
       joint.prev_command = joint.command;
     }
     return return_type::OK;
@@ -275,25 +271,28 @@ return_type UirobotHardware::write(
   {
     set_joint_positions();
   }
-  
+
   return return_type::OK;
 }
 
 return_type UirobotHardware::enable_torque(const bool enabled)
 {
-
   if (enabled && !torque_enabled_) {
     for (uint i = 0; i < info_.joints.size(); ++i) {
       std::vector<uint8_t> cmd = create_commands("on", joint_ids_[i]);
       std::vector<uint8_t> res = ser_->read_and_write(cmd);
-      (void)res; // TODO Check the control is Okay?
+      if (res.empty()) {
+        return return_type::ERROR;
+      }
     }
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "Torque enabled");
   } else if (!enabled && torque_enabled_) {
     for (uint i = 0; i < info_.joints.size(); ++i) {
       std::vector<uint8_t> cmd = create_commands("off", joint_ids_[i]);
       std::vector<uint8_t> res = ser_->read_and_write(cmd);
-      (void)res; // TODO Check the control is Okay?
+      if (res.empty()) {
+        return return_type::ERROR;
+      }
     }
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "Torque disabled");
   }
@@ -319,35 +318,37 @@ return_type UirobotHardware::reset_command()
 CallbackReturn UirobotHardware::set_joint_positions()
 {
   for (size_t i = 0; i < joints_.size(); i++) {
-
     double target = joints_[i].command.position;
     double current = joints_[i].state.position;
 
     if (std::isnan(target) || std::isnan(current)) continue;
 
     double vel = (target - current) * joints_[i].kp;
+    vel = std::clamp(
+      vel,
+      -std::fabs(joints_[i].max_vel * joints_[i].gear_ratio),
+      std::fabs(joints_[i].max_vel * joints_[i].gear_ratio));
 
-    // [rad/s] : gear_ratio is have to be considered because the motor is connected with gear...
-    // velocity limit: TODO set for motor...
-    vel = std::clamp(vel, -std::fabs(joints_[i].max_vel * joints_[i].gear_ratio), std::fabs(joints_[i].max_vel * joints_[i].gear_ratio));
-
-    // rad/s >> pulse/s
-    double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2*M_PI);
-  
-    // rad >> pulse
-    double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2*M_PI);
+    double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+    double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
 
     std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
     auto res = ser_->read_and_write(cmd);
-    // res : TODO Check the control is Okay?
+    if (res.empty()) {
+      return CallbackReturn::ERROR;
+    }
 
     cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
     res = ser_->read_and_write(cmd);
-    // res : TODO Check the control is Okay?
+    if (res.empty()) {
+      return CallbackReturn::ERROR;
+    }
 
     cmd = create_commands("move", joint_ids_[i]);
     res = ser_->read_and_write(cmd);
-    (void)res; // TODO Check the control is Okay?
+    if (res.empty()) {
+      return CallbackReturn::ERROR;
+    }
 
     joints_[i].prev_command.position = joints_[i].command.position;
   }
@@ -361,10 +362,8 @@ CallbackReturn UirobotHardware::set_joint_params()
     for (auto paramName : kExtraJointParameters) {
       if (info_.joints[i].parameters.find(paramName) != info_.joints[i].parameters.end()) {
         auto value = std::stoi(info_.joints[i].parameters.at(paramName));
-        // TODO: Set param list....
         RCLCPP_INFO(
-          rclcpp::get_logger(
-            kUirobotHardware), "%s set to %d for joint %d", paramName, value, i);
+          rclcpp::get_logger(kUirobotHardware), "%s set to %d for joint %d", paramName, value, i);
       }
     }
   }
@@ -376,6 +375,9 @@ CallbackReturn UirobotHardware::get_joint_params()
   for (uint i = 0; i < joints_.size(); ++i) {
     std::vector<uint8_t> cmd = create_commands("cpr", joint_ids_[i]);
     std::vector<uint8_t> res = ser_->read_and_write(cmd);
+    if (res.size() < 9) {
+      return CallbackReturn::ERROR;
+    }
     joints_[i].cpr = analyze_cmd(res, "cpr");
   }
   return CallbackReturn::SUCCESS;
@@ -383,11 +385,10 @@ CallbackReturn UirobotHardware::get_joint_params()
 
 std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, double pos, double vel)
 {
-
   std::vector<uint8_t> cmd = {header_, static_cast<std::uint8_t>(id)};
-  cmd.insert(cmd.end(), 2, static_cast<std::uint8_t>(NAN));
+  cmd.insert(cmd.end(), 2, 0);
   cmd.insert(cmd.end(), 9, 0);
-  cmd.insert(cmd.end(), 2, 0); // TODO: CRC mode...
+  cmd.insert(cmd.end(), 2, 0);
   cmd.push_back(footer_);
 
   if (mode == "on") {
@@ -427,7 +428,8 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
   return cmd;
 }
 
-int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode) {
+int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
+{
   int32_t val;
 
   if (mode == "get_pos") {
