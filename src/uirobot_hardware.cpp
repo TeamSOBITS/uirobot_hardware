@@ -453,6 +453,13 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
 
 int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
 {
+  if (mode == "get_pos" && cmd.size() < 12) {
+    return 0;
+  }
+  if (mode == "cpr" && cmd.size() < 9) {
+    return 0;
+  }
+
   int32_t val;
 
   if (mode == "get_pos") {
