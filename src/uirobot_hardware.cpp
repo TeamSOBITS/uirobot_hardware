@@ -356,7 +356,7 @@ CallbackReturn UirobotHardware::set_joint_positions()
       return CallbackReturn::ERROR;
     }
 
-    cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
+    cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
     res = ser_->read_and_write(cmd);
     if (res.empty()) {
       return CallbackReturn::ERROR;
