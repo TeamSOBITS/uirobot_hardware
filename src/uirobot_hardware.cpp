@@ -344,7 +344,13 @@ CallbackReturn UirobotHardware::set_joint_positions()
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
     double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
 
-    std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
+    RCLCPP_INFO(
+      rclcpp::get_logger(kUirobotHardware),
+      "Joint '%s' command: target=%.6f current=%.6f (pls=%.2f) vel=%.6f m/s (pps=%.2f) ",
+      info_.joints[i].name.c_str(), target, current, pls, vel, pps);
+
+    // UIM342 PTP expects target position first, then target speed, then begin motion.
+    std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
     auto res = ser_->read_and_write(cmd);
     if (res.empty()) {
       return CallbackReturn::ERROR;
