@@ -338,8 +338,8 @@ CallbackReturn UirobotHardware::set_joint_positions()
     double vel = (target - current) * joints_[i].kp;
     vel = std::clamp(
       vel,
-      -std::fabs(joints_[i].max_vel * joints_[i].gear_ratio),
-      std::fabs(joints_[i].max_vel * joints_[i].gear_ratio));
+      -std::fabs(joints_[i].max_vel),
+      std::fabs(joints_[i].max_vel));
 
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
     double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
