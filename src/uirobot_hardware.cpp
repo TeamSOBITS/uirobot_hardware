@@ -207,13 +207,25 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     if (res.size() < 12) {
       RCLCPP_ERROR(
         rclcpp::get_logger(kUirobotHardware),
-        "No valid response from UIROBOT gateway for joint '%s'",
-        info_.joints[i].name.c_str());
+        "Failed to read position for joint '%s' (reply size=%zu)",
+        info_.joints[i].name.c_str(), res.size());
       return return_type::ERROR;
     }
-    joints_[i].state.position =
+    const double position =
       (static_cast<float>(analyze_cmd(res, "get_pos")) / joints_[i].cpr * (2 * M_PI)) /
       joints_[i].gear_ratio;
+
+    // The UIM2513 gateway occasionally returns a transient zero-position sample.
+    // Keep the previous valid position instead of injecting a false origin jump.
+    if (
+      std::isfinite(joints_[i].state.position) &&
+      std::abs(position) < 1e-9 &&
+      std::abs(joints_[i].state.position) > 0.02)
+    {
+      continue;
+    }
+
+    joints_[i].state.position = position;
   }
 
   for (auto & joint : joints_) {
