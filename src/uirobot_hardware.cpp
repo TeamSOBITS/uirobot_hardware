@@ -379,6 +379,10 @@ CallbackReturn UirobotHardware::get_joint_params()
       return CallbackReturn::ERROR;
     }
     joints_[i].cpr = analyze_cmd(res, "cpr");
+    RCLCPP_INFO(
+      rclcpp::get_logger(kUirobotHardware),
+      "Joint '%s' CPR from controller: %d",
+      info_.joints[i].name.c_str(), joints_[i].cpr);
   }
   return CallbackReturn::SUCCESS;
 }
