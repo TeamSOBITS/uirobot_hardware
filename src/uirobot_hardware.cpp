@@ -411,7 +411,8 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[3] = 0x01;
     cmd[4] = 0x04;
   } else if (mode == "set_pos") {
-    cmd[2] = 0x9F;
+    // Absolute position command (PA). ROS publishes absolute joint targets.
+    cmd[2] = 0xA0;
     cmd[3] = 0x04;
     cmd[4] = (static_cast<int32_t>(pos) & 0xFF);
     cmd[5] = ((static_cast<int32_t>(pos) >> 8) & 0xFF);
