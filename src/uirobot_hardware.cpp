@@ -64,6 +64,18 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
       joints_[i].max_vel = std::stod(info_.joints[i].parameters.at("max_velocity"));
     }
 
+    for (const auto & command_interface : info_.joints[i].command_interfaces) {
+      if (command_interface.name == hardware_interface::HW_IF_POSITION) {
+        if (!command_interface.min.empty()) {
+          joints_[i].min_pos = std::stod(command_interface.min);
+        }
+        if (!command_interface.max.empty()) {
+          joints_[i].max_pos = std::stod(command_interface.max);
+        }
+        break;
+      }
+    }
+
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_id %d: %d", i, joint_ids_[i]);
     if (std::isfinite(joints_[i].min_pos) || std::isfinite(joints_[i].max_pos)) {
       const std::string min_pos_str =
