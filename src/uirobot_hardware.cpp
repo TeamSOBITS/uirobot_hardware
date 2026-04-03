@@ -388,6 +388,20 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
 
     if (std::isnan(target) || std::isnan(current) || std::isnan(prev_target)) continue;
 
+    const double requested_target = target;
+    if (std::isfinite(joints_[i].min_pos)) {
+      target = std::max(target, joints_[i].min_pos);
+    }
+    if (std::isfinite(joints_[i].max_pos)) {
+      target = std::min(target, joints_[i].max_pos);
+    }
+    if (target != requested_target) {
+      RCLCPP_WARN(
+        rclcpp::get_logger(kUirobotHardware),
+        "Clamped joint '%s' target from %.6f to %.6f",
+        info_.joints[i].name.c_str(), requested_target, target);
+    }
+
     const double trajectory_vel = (target - prev_target) / dt;
     const double correction_vel = (target - current) * joints_[i].kp;
     double vel = trajectory_vel + correction_vel;
@@ -425,7 +439,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
       return CallbackReturn::ERROR;
     }
 
-    joints_[i].prev_command.position = joints_[i].command.position;
+    joints_[i].prev_command.position = target;
   }
 
   return CallbackReturn::SUCCESS;
