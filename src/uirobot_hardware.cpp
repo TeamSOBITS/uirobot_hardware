@@ -375,12 +375,12 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
     double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
 
-    RCLCPP_INFO(
-      rclcpp::get_logger(kUirobotHardware),
-      "Joint '%s' command: target=%.6f current=%.6f prev_target=%.6f (pls=%.2f) "
-      "traj_vel=%.6f corr_vel=%.6f vel=%.6f m/s (pps=%.2f)",
-      info_.joints[i].name.c_str(), target, current, prev_target, pls,
-      trajectory_vel, correction_vel, vel, pps);
+    // RCLCPP_INFO(
+    //   rclcpp::get_logger(kUirobotHardware),
+    //   "Joint '%s' command: target=%.6f current=%.6f prev_target=%.6f (pls=%.2f) "
+    //   "traj_vel=%.6f corr_vel=%.6f vel=%.6f m/s (pps=%.2f)",
+    //   info_.joints[i].name.c_str(), target, current, prev_target, pls,
+    //   trajectory_vel, correction_vel, vel, pps);
 
     // UIM342 PTP expects target position first, then target speed, then begin motion.
     std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
