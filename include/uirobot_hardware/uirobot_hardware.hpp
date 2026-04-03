@@ -78,7 +78,7 @@ private:
 
   return_type reset_command();
 
-  CallbackReturn set_joint_positions();
+  CallbackReturn set_joint_positions(const rclcpp::Duration & period);
   CallbackReturn set_joint_params();
   CallbackReturn get_joint_params();
 

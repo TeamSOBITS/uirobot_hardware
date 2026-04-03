@@ -247,7 +247,7 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
   return return_type::OK;
 }
 
-return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration &)
+return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration & period)
 {
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
@@ -281,7 +281,7 @@ return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration 
         return !std::isnan(j.command.position) && j.command.position != j.prev_command.position;
       }))
   {
-    set_joint_positions();
+    set_joint_positions(period);
   }
 
   return return_type::OK;
@@ -327,15 +327,20 @@ return_type UirobotHardware::reset_command()
   return return_type::OK;
 }
 
-CallbackReturn UirobotHardware::set_joint_positions()
+CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & period)
 {
+  const double dt = std::max(period.seconds(), 1e-3);
+
   for (size_t i = 0; i < joints_.size(); i++) {
     double target = joints_[i].command.position;
     double current = joints_[i].state.position;
+    double prev_target = joints_[i].prev_command.position;
 
-    if (std::isnan(target) || std::isnan(current)) continue;
+    if (std::isnan(target) || std::isnan(current) || std::isnan(prev_target)) continue;
 
-    double vel = (target - current) * joints_[i].kp;
+    const double trajectory_vel = (target - prev_target) / dt;
+    const double correction_vel = (target - current) * joints_[i].kp;
+    double vel = trajectory_vel + correction_vel;
     vel = std::clamp(
       vel,
       -std::fabs(joints_[i].max_vel),
@@ -346,8 +351,10 @@ CallbackReturn UirobotHardware::set_joint_positions()
 
     RCLCPP_INFO(
       rclcpp::get_logger(kUirobotHardware),
-      "Joint '%s' command: target=%.6f current=%.6f (pls=%.2f) vel=%.6f m/s (pps=%.2f) ",
-      info_.joints[i].name.c_str(), target, current, pls, vel, pps);
+      "Joint '%s' command: target=%.6f current=%.6f prev_target=%.6f (pls=%.2f) "
+      "traj_vel=%.6f corr_vel=%.6f vel=%.6f m/s (pps=%.2f)",
+      info_.joints[i].name.c_str(), target, current, prev_target, pls,
+      trajectory_vel, correction_vel, vel, pps);
 
     // UIM342 PTP expects target position first, then target speed, then begin motion.
     std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
