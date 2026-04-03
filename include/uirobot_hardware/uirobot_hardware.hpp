@@ -4,6 +4,7 @@
 #include <rclcpp/macros.hpp>
 
 #include <map>
+#include <limits>
 #include <vector>
 
 #include <hardware_interface/handle.hpp>
@@ -35,6 +36,8 @@ struct Joint
   double kp{1.0};
   double stop_threshold{0.005};
   double max_vel{0.5};
+  double min_pos{std::numeric_limits<double>::quiet_NaN()};
+  double max_pos{std::numeric_limits<double>::quiet_NaN()};
   int cpr{1}; // Counts Per Revolution
 
   // Mimic joint parameters

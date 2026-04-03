@@ -65,6 +65,18 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
     }
 
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_id %d: %d", i, joint_ids_[i]);
+    if (std::isfinite(joints_[i].min_pos) || std::isfinite(joints_[i].max_pos)) {
+      const std::string min_pos_str =
+        std::isfinite(joints_[i].min_pos) ? std::to_string(joints_[i].min_pos) : "none";
+      const std::string max_pos_str =
+        std::isfinite(joints_[i].max_pos) ? std::to_string(joints_[i].max_pos) : "none";
+      RCLCPP_INFO(
+        rclcpp::get_logger(kUirobotHardware),
+        "Joint '%s' position limits: min=%s max=%s",
+        info_.joints[i].name.c_str(),
+        min_pos_str.c_str(),
+        max_pos_str.c_str());
+    }
   }
 
   for (const auto & mimic_data : info_.mimic_joints) {
