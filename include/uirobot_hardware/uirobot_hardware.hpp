@@ -89,6 +89,8 @@ private:
   std::vector<uint8_t> joint_ids_;
   bool torque_enabled_{false};
   bool use_dummy_{false};
+  bool toggle_torque_on_configure_{false};
+  bool enable_torque_before_motion_{false};
 
   std::unique_ptr<uirobot_driver::SerialPort> ser_;
 };

@@ -100,6 +100,24 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
     return CallbackReturn::SUCCESS;
   }
 
+  if (info_.hardware_parameters.find("toggle_torque_on_configure") != info_.hardware_parameters.end()) {
+    const auto & value = info_.hardware_parameters.at("toggle_torque_on_configure");
+    toggle_torque_on_configure_ = !(value == "false" || value == "False" || value == "0");
+  }
+  if (info_.hardware_parameters.find("enable_torque_before_motion") != info_.hardware_parameters.end()) {
+    const auto & value = info_.hardware_parameters.at("enable_torque_before_motion");
+    enable_torque_before_motion_ = (value == "true" || value == "True" || value == "1");
+  }
+  RCLCPP_INFO(
+  rclcpp::get_logger(kUirobotHardware),
+  "toggle_torque_on_configure: %s",
+  toggle_torque_on_configure_ ? "true" : "false");
+  RCLCPP_INFO(
+  rclcpp::get_logger(kUirobotHardware),
+  "enable_torque_before_motion: %s",
+  enable_torque_before_motion_ ? "true" : "false");
+
+
   auto port_name = info_.hardware_parameters.at("port_name");
   auto baud_rate = std::stoul(info_.hardware_parameters.at("baud_rate"));
 
@@ -129,10 +147,14 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
     return CallbackReturn::ERROR;
   }
 
-  enable_torque(false);
+  if (toggle_torque_on_configure_) {
+    enable_torque(false);
+  }
   set_joint_params();
   get_joint_params();
-  enable_torque(true);
+  if (toggle_torque_on_configure_) {
+    enable_torque(true);
+  }
 
   return CallbackReturn::SUCCESS;
 }
