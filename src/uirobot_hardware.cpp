@@ -56,6 +56,10 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
       joints_[i].kp = std::stod(info_.joints[i].parameters.at("position_kp"));
     }
 
+    if (info_.joints[i].parameters.find("stop_threshold") != info_.joints[i].parameters.end()) {
+      joints_[i].stop_threshold = std::stod(info_.joints[i].parameters.at("stop_threshold"));
+    }
+
     if (info_.joints[i].parameters.find("max_velocity") != info_.joints[i].parameters.end()) {
       joints_[i].max_vel = std::stod(info_.joints[i].parameters.at("max_velocity"));
     }
