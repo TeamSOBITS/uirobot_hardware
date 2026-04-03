@@ -61,6 +61,7 @@ install(
   PROGRAMS
     scripts/check_internal_brake.py
     scripts/release_brake.py
+    scripts/set_origin.py
   DESTINATION share/${PROJECT_NAME}/scripts
 )
 
