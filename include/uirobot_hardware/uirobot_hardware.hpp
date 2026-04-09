@@ -35,6 +35,7 @@ struct Joint
   double gear_ratio{1.0};
   double kp{1.0};
   double stop_threshold{0.005};
+  double min_vel{0.0};
   double max_vel{0.5};
   double min_pos{std::numeric_limits<double>::quiet_NaN()};
   double max_pos{std::numeric_limits<double>::quiet_NaN()};

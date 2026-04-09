@@ -60,6 +60,10 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
       joints_[i].stop_threshold = std::stod(info_.joints[i].parameters.at("stop_threshold"));
     }
 
+    if (info_.joints[i].parameters.find("min_velocity") != info_.joints[i].parameters.end()) {
+      joints_[i].min_vel = std::stod(info_.joints[i].parameters.at("min_velocity"));
+    }
+
     if (info_.joints[i].parameters.find("max_velocity") != info_.joints[i].parameters.end()) {
       joints_[i].max_vel = std::stod(info_.joints[i].parameters.at("max_velocity"));
     }
@@ -409,6 +413,14 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
       vel,
       -std::fabs(joints_[i].max_vel),
       std::fabs(joints_[i].max_vel));
+    if (
+      joints_[i].min_vel > 0.0 &&
+      std::abs(target - current) > joints_[i].stop_threshold &&
+      std::abs(vel) > 1e-6 &&
+      std::abs(vel) < joints_[i].min_vel)
+    {
+      vel = std::copysign(joints_[i].min_vel, vel);
+    }
 
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
     double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
