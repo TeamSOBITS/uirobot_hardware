@@ -4,6 +4,7 @@
 #include <rclcpp/macros.hpp>
 
 #include <map>
+#include <limits>
 #include <vector>
 
 #include <hardware_interface/handle.hpp>
@@ -33,8 +34,11 @@ struct Joint
   JointValue prev_command{};
   double gear_ratio{1.0};
   double kp{1.0};
-  double stop_threshold{0.01};
+  double stop_threshold{0.005};
+  double min_vel{0.0};
   double max_vel{0.5};
+  double min_pos{std::numeric_limits<double>::quiet_NaN()};
+  double max_pos{std::numeric_limits<double>::quiet_NaN()};
   int cpr{1}; // Counts Per Revolution
 
   // Mimic joint parameters
@@ -78,7 +82,7 @@ private:
 
   return_type reset_command();
 
-  CallbackReturn set_joint_positions();
+  CallbackReturn set_joint_positions(const rclcpp::Duration & period);
   CallbackReturn set_joint_params();
   CallbackReturn get_joint_params();
 
@@ -89,6 +93,8 @@ private:
   std::vector<uint8_t> joint_ids_;
   bool torque_enabled_{false};
   bool use_dummy_{false};
+  bool toggle_torque_on_configure_{false};
+  bool enable_torque_before_motion_{false};
 
   std::unique_ptr<uirobot_driver::SerialPort> ser_;
 };
