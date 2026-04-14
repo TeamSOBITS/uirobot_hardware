@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <string>
 #include <vector>
@@ -163,7 +164,7 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "configure");
 
   for (uint i = 0; i < joints_.size(); i++) {
-    if (use_dummy_ && std::isnan(joints_[i].state.position)) {
+    if (std::isnan(joints_[i].state.position)) {
       joints_[i].state.position = 0.0;
       joints_[i].state.velocity = 0.0;
       joints_[i].state.effort = 0.0;
@@ -251,6 +252,12 @@ CallbackReturn UirobotHardware::on_deactivate(const rclcpp_lifecycle::State &)
 
 return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &)
 {
+  std::vector<JointValue> prev_states;
+  prev_states.reserve(joints_.size());
+  for (const auto & joint : joints_) {
+    prev_states.push_back(joint.state);
+  }
+
   if (use_dummy_) {
     return return_type::OK;
   }
@@ -280,6 +287,8 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     }
 
     joints_[i].state.position = position;
+    joints_[i].state.velocity = 0.0;
+    joints_[i].state.effort   = 0.0;
   }
 
   for (auto & joint : joints_) {
@@ -295,6 +304,18 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
       } else {
         joint.state.effort = 0.0;
       }
+    }
+  }
+
+  for (uint i = 0; i < joints_.size(); ++i) {
+    if (std::isnan(joints_[i].state.position)) {
+      joints_[i].state.position = std::isnan(prev_states[i].position) ? 0.0 : prev_states[i].position;
+    }
+    if (std::isnan(joints_[i].state.velocity)) {
+      joints_[i].state.velocity = std::isnan(prev_states[i].velocity) ? 0.0 : prev_states[i].velocity;
+    }
+    if (std::isnan(joints_[i].state.effort)) {
+      joints_[i].state.effort = std::isnan(prev_states[i].effort) ? 0.0 : prev_states[i].effort;
     }
   }
 
