@@ -12,6 +12,8 @@ sudo apt install -y \
     ros-$ROS_DISTRO-pluginlib \
     libserial-dev \
 
+pip3 install pyserial --break-system-packages
+
 # TODO : Add rules
 # sudo udevadm control --reload-rules
 # sudo udevadm trigger
