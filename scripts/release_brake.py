@@ -2,7 +2,7 @@
 import serial
 import time
 import os
-
+import argparse  
 
 def modbus_crc16(data: bytes) -> int:
     crc = 0xFFFF
@@ -37,23 +37,35 @@ def hexdump(data: bytes):
 
 
 def main():
-    port = str(os.environ.get('UM_PORT'))
-    baud = 57600
-    device_id = 5
+    parser = argparse.ArgumentParser(description="Release Uirobot Brake")
+    parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
+    parser.add_argument('--baud', type=int, default=57600, help="Baud rate")
+    parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
+    args = parser.parse_known_args()[0] # 他の未知の引数があってもエラーにしない
+
+    
+    port = str(args.port) if args.port else None
+    baud = args.baud
+    device_id = args.id
+
+    
+    if not port or port == "None":
+        print("❌ Error: Serial port is not specified. Please set UM_PORT or pass --port.")
+        return
 
     expected_reply = bytes([
         0xAA,
-        0x05, 0x10, 0x03,
+        device_id, 0x10, 0x03,  
         0x05, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xF3, 0x91,
+        0xF3, 0x91,             
         0xCC
     ])
 
     tx = build_packet(device_id)
 
     print("Sending:", hexdump(tx))
-    print("Expect :", hexdump(expected_reply))
+    print("Expect (Static):", hexdump(expected_reply))
 
     with serial.Serial(port, baud, timeout=1) as ser:
         ser.reset_input_buffer()
@@ -64,8 +76,9 @@ def main():
         rx = ser.read(16)
         print("Received:", hexdump(rx))
 
-        if rx == expected_reply:
-            print("✅ Brake released successfully (ACK matched)")
+        # 💡 ID変更に対応するため、完全一致(==)ではなく「長さが16バイト」かつ「ヘッダーとID、コマンドの一致」で判定
+        if len(rx) == 16 and rx[0] == 0xAA and rx[1] == device_id and rx[2] == 0x10:
+            print(f"✅ Brake released successfully (ACK matched for ID {device_id})")
         else:
             print("⚠️ Reply mismatch")
 

@@ -163,17 +163,17 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "configure");
 
-  for (uint i = 0; i < joints_.size(); i++) {
-    if (std::isnan(joints_[i].state.position)) {
-      joints_[i].state.position = 0.0;
-      joints_[i].state.velocity = 0.0;
-      joints_[i].state.effort = 0.0;
-    }
-  }
-
+  // 先に現在の本物のモーター位置を読み込みに行く
   if (read(rclcpp::Time{}, rclcpp::Duration(0, 0)) == return_type::ERROR) {
-    RCLCPP_ERROR(rclcpp::get_logger(kUirobotHardware), "Read failed in on_configure");
-    return CallbackReturn::ERROR;
+    RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "Initial read failed in on_configure, applying backup 0.0");
+    // 通信が失敗したときだけ、NaNのままにならないように0.0を代入する
+    for (uint i = 0; i < joints_.size(); i++) {
+      if (std::isnan(joints_[i].state.position)) {
+        joints_[i].state.position = 0.0;
+        joints_[i].state.velocity = 0.0;
+        joints_[i].state.effort = 0.0;
+      }
+    }
   }
 
   if (toggle_torque_on_configure_) {
@@ -263,6 +263,7 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
   }
 
   for (uint i = 0; i < joint_ids_.size(); i++) {
+    // 1. 位置の取得
     std::vector<uint8_t> cmd = create_commands("get_pos", joint_ids_[i]);
     std::vector<uint8_t> res = ser_->read_and_write(cmd);
     if (res.size() < 12) {
@@ -281,23 +282,43 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     if (
       std::isfinite(joints_[i].state.position) &&
       std::abs(position) < 1e-9 &&
-      std::abs(joints_[i].state.position) > 0.02)
+      std::abs(joints_[i].state.position) > 1e-3) // 0.02 から 0.001 に変更
     {
       continue;
     }
 
     joints_[i].state.position = position;
-    joints_[i].state.velocity = 0.0;
+    // RCLCPP_INFO(this->get_logger(), "position INFO: %f", position);
+
+    // 2. 速度の取得（追加部分）
+    std::vector<uint8_t> cmd_vel = create_commands("get_vel", joint_ids_[i]);
+    std::vector<uint8_t> res_vel = ser_->read_and_write(cmd_vel);
+    if (res_vel.size() < 8) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "Failed to read velocity for joint '%s' (reply size=%zu)",
+        info_.joints[i].name.c_str(), res_vel.size());
+      return return_type::ERROR;
+    }
+    
+    int32_t raw_velocity = analyze_cmd(res_vel, "get_vel");
+    // pps単位から rad/s 単位への変換
+    const double velocity =
+      (static_cast<double>(raw_velocity) / joints_[i].cpr * (2 * M_PI)) /
+      joints_[i].gear_ratio;
+
+    joints_[i].state.velocity = velocity;
     joints_[i].state.effort   = 0.0;
   }
 
+  // ミミックジョイント（従属関節）への速度の反映
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
       double m = joint.mimic_multiplier;
 
       joint.state.position = (m * src.state.position) + joint.mimic_offset;
-      joint.state.velocity = m * src.state.velocity;
+      joint.state.velocity = m * src.state.velocity; // 速度もミミックの倍率を適用
 
       if (std::abs(m) > 1e-6) {
         joint.state.effort = src.state.effort / m;
@@ -430,21 +451,34 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
     const double trajectory_vel = (target - prev_target) / dt;
     const double correction_vel = (target - current) * joints_[i].kp;
     double vel = trajectory_vel + correction_vel;
+    
+    // 最大速度でクランプ
     vel = std::clamp(
       vel,
       -std::fabs(joints_[i].max_vel),
       std::fabs(joints_[i].max_vel));
-    if (
-      joints_[i].min_vel > 0.0 &&
-      std::abs(target - current) > joints_[i].stop_threshold &&
-      std::abs(vel) > 1e-6 &&
-      std::abs(vel) < joints_[i].min_vel)
+
+    // ★修正: 残り距離が閾値より大きいなら、速度がどれだけ小さくても最低速度（min_vel）を下回らせない
+    if (joints_[i].min_vel > 0.0 &&
+        std::abs(target - current) > joints_[i].stop_threshold)
     {
-      vel = std::copysign(joints_[i].min_vel, vel);
+      if (std::abs(vel) < joints_[i].min_vel) {
+        vel = std::copysign(joints_[i].min_vel, vel);
+      }
     }
+
+    RCLCPP_INFO(
+      rclcpp::get_logger(kUirobotHardware),
+      "[%s] Target: %.4f, Current: %.4f, Dt: %.3f | Traj_Vel: %.6f, Corr_Vel: %.6f, Final_Vel: %.6f",
+      info_.joints[i].name.c_str(), target, current, dt, trajectory_vel, correction_vel, vel);
 
     double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
     double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+
+    // ★追加: 偏差があるのにパルス計算結果がゼロになってしまうのを防ぐ（最低1 ppsを保証）
+    if (std::abs(target - current) > joints_[i].stop_threshold && std::abs(pps) < 1.0) {
+      pps = std::copysign(1.0, pps);
+    }
 
     // RCLCPP_INFO(
     //   rclcpp::get_logger(kUirobotHardware),
@@ -454,13 +488,20 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & per
     //   trajectory_vel, correction_vel, vel, pps);
 
     // UIM342 PTP expects target position first, then target speed, then begin motion.
-    std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
+    // set_joint_positions内での修正
+    int32_t target_pls = static_cast<int32_t>(std::round(pls));
+    // int32_t target_pps = static_cast<int32_t>(std::round(std::abs(pps)));
+
+    std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], target_pls, 0);
+    // std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
+    
     auto res = ser_->read_and_write(cmd);
     if (res.empty()) {
       return CallbackReturn::ERROR;
     }
 
-    cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
+    // cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
+    cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(std::abs(pps)));
     res = ser_->read_and_write(cmd);
     if (res.empty()) {
       return CallbackReturn::ERROR;
@@ -547,6 +588,10 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[5] = ((static_cast<int32_t>(vel) >> 8) & 0xFF);
     cmd[6] = ((static_cast<int32_t>(vel) >> 16) & 0xFF);
     cmd[7] = ((static_cast<int32_t>(vel) >> 24) & 0xFF);
+  } else if (mode == "get_vel") {
+    // 0x9D (JVコマンド): 現在の速度を取得 (ACK要求)
+    cmd[2] = 0x9D;
+    cmd[3] = 0x00; // 送信データ長は0
   } else if (mode == "move") {
     cmd[2] = 0x96;
   } else {
@@ -558,6 +603,9 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
 int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
 {
   if (mode == "get_pos" && cmd.size() < 12) {
+    return 0;
+  }
+  if (mode == "get_vel" && cmd.size() < 9) { // 追加: 速度ACKの最小サイズ
     return 0;
   }
   if (mode == "cpr" && cmd.size() < 9) {
@@ -578,6 +626,13 @@ int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
       ((int32_t)cmd[6] << 8) |
       ((int32_t)cmd[7] << 16) |
       ((int32_t)cmd[8] << 24);
+  } else if (mode == "get_vel") {
+    // 追加: 速度データのパース (ACKのデータ長は4バイト)
+    val =
+      (int32_t)cmd[4] |
+      ((int32_t)cmd[5] << 8) |
+      ((int32_t)cmd[6] << 16) |
+      ((int32_t)cmd[7] << 24);
   } else {
     return 0;
   }
