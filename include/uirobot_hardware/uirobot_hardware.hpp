@@ -91,6 +91,7 @@ private:
 
   std::vector<Joint> joints_;
   std::vector<uint8_t> joint_ids_;
+  std::vector<std::string> joint_modes_;
   bool torque_enabled_{false};
   bool use_dummy_{false};
   bool toggle_torque_on_configure_{false};
