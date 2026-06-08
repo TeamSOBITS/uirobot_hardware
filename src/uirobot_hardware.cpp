@@ -7,6 +7,7 @@
 #include <limits>
 #include <string>
 #include <vector>
+#include <bits/stdc++.h>
 
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
@@ -36,9 +37,11 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
 
   joints_.resize(info_.joints.size(), Joint());
   joint_ids_.resize(info_.joints.size(), 0);
+  joint_modes_.resize(info_.joints.size(), "");
 
   for (uint i = 0; i < info_.joints.size(); i++) {
     joint_ids_[i] = std::stoi(info_.joints[i].parameters.at("id"));
+    joint_modes_[i] = info_.joints[i].parameters.at("mode");
     joints_[i].state.position = std::numeric_limits<double>::quiet_NaN();
     joints_[i].state.velocity = std::numeric_limits<double>::quiet_NaN();
     joints_[i].state.effort = std::numeric_limits<double>::quiet_NaN();
@@ -82,6 +85,7 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
     }
 
     RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_id %d: %d", i, joint_ids_[i]);
+    RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "joint_mode %d: %s", i, joint_modes_[i].c_str());
     if (std::isfinite(joints_[i].min_pos) || std::isfinite(joints_[i].max_pos)) {
       const std::string min_pos_str =
         std::isfinite(joints_[i].min_pos) ? std::to_string(joints_[i].min_pos) : "none";
@@ -95,6 +99,9 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
         max_pos_str.c_str());
     }
   }
+
+  // RCLCPP_INFO(this->get_logger(), "joint_modes_[i] DEBUG: %s", joint_modes_[i]);
+
 
   for (const auto & mimic_data : info_.mimic_joints) {
     uint mimic_idx = mimic_data.joint_index;
@@ -156,7 +163,77 @@ CallbackReturn UirobotHardware::on_init(const hardware_interface::HardwareCompon
   ser_ = std::make_unique<uirobot_driver::SerialPort>(port_name);
   ser_->configure(static_cast<std::size_t>(baud_rate));
 
+  for (size_t i = 0; i < joint_ids_.size(); i++) {
+    RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "Releasing brake for Joint ID: %d ...", joint_ids_[i]);
+    if (!release_brake_hardware(joint_ids_[i])) {
+      RCLCPP_ERROR(rclcpp::get_logger(kUirobotHardware), "Failed to release brake for Joint ID: %d", joint_ids_[i]);
+    } else {
+      RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "Brake released successfully for Joint ID: %d", joint_ids_[i]);
+    }
+  }
+
   return CallbackReturn::SUCCESS;
+}
+
+uint16_t UirobotHardware::calculate_modbus_crc(const std::vector<uint8_t> & data)
+{
+  uint16_t crc = 0xFFFF;
+  for (uint8_t b : data) {
+    crc ^= b;
+    for (int i = 0; i < 8; ++i) {
+      if (crc & 1) {
+        crc = (crc >> 1) ^ 0xA001;
+      } else {
+        crc >>= 1;
+      }
+    }
+  }
+  return crc & 0xFFFF;
+}
+
+bool UirobotHardware::release_brake_hardware(uint8_t device_id)
+{
+  if (!ser_) {//そもそもシリアルが繋がってないとき
+    RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Serial port object is null.", device_id);
+    return false;
+  }
+
+  // release_brake.py を参考にコマンド構築
+  std::vector<uint8_t> payload = {
+    device_id, 0x90, 0x03,
+    0x05, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  };
+
+  uint16_t crc = calculate_modbus_crc(payload);
+  uint8_t crc_lo = crc & 0xFF;
+  uint8_t crc_hi = (crc >> 8) & 0xFF;
+
+  // パケット全体の組み立て (Header: 0xAA, Footer: 0xCC)
+  std::vector<uint8_t> packet;
+  packet.reserve(1 + payload.size() + 2 + 1);
+  packet.push_back(0xAA); // ヘッダー
+  packet.insert(packet.end(), payload.begin(), payload.end());
+  packet.push_back(crc_lo);
+  packet.push_back(crc_hi);
+  packet.push_back(0xCC); // フッター
+
+  // モーターへ送信し、レスポンスを受け取る
+  auto reply = ser_->read_and_write(packet);
+
+  // 送信失敗、または空の返答の場合.接続成功時，失敗時に視覚的分かりすいログを出力する
+  if (reply.empty()) {
+    RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Connection failed. No response received.", device_id);
+    return false;
+  }
+
+  if (reply.size() >= 4 && reply[0] == 0xAA && reply[1] == device_id) {
+    RCLCPP_INFO(rclcpp::get_logger(kUirobotHardware), "✅ [ID: %d] Brake released successfully.", device_id);
+    return true;
+  }
+
+  RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Invalid response format.", device_id);
+  return false;
 }
 
 CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
@@ -286,8 +363,29 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
       continue;
     }
 
+    std::vector<uint8_t> cmd_vel = create_commands("get_vel", joint_ids_[i]);
+    std::vector<uint8_t> res_vel = ser_->read_and_write(cmd_vel);
+    if (res_vel.size() < 8) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "Failed to read velocity for joint '%s' (reply size=%zu)",
+        info_.joints[i].name.c_str(), res_vel.size());
+      return return_type::ERROR;
+    }
+    
+    int32_t raw_velocity = analyze_cmd(res_vel, "get_vel");
+    // pps単位から m/s 単位への変換
+    const double velocity =
+      (static_cast<double>(raw_velocity) / joints_[i].cpr * (2 * M_PI)) / joints_[i].gear_ratio;
+    
+    // デバッグ用ログ
+    // RCLCPP_INFO(this->get_logger(), "raw_velocity DEBUG: %d", raw_velocity);
+    // RCLCPP_INFO(this->get_logger(), "velocity DEBUG: %f", velocity);
+    // RCLCPP_INFO(this->get_logger(), "joints_[i].cpr DEBUG: %d", joints_[i].cpr);
+    // RCLCPP_INFO(this->get_logger(), "joints_[i].kp DEBUG: %f", joints_[i].kp);
+
     joints_[i].state.position = position;
-    joints_[i].state.velocity = 0.0;
+    joints_[i].state.velocity = velocity;
     joints_[i].state.effort   = 0.0;
   }
 
@@ -322,16 +420,16 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
   return return_type::OK;
 }
 
-return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration & period)
+//モード切替えのためのコード（PTPとJOGの両方を残す）
+hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
+  // Mimic jointの処理
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
       double m = joint.mimic_multiplier;
-
       joint.command.position = (m * src.command.position) + joint.mimic_offset;
       joint.command.velocity = m * src.command.velocity;
-
       if (std::abs(m) > 1e-6) {
         joint.command.effort = src.command.effort / m;
       } else {
@@ -345,17 +443,50 @@ return_type UirobotHardware::write(const rclcpp::Time &, const rclcpp::Duration 
       if (!std::isnan(joint.command.position)) joint.state.position = joint.command.position;
       if (!std::isnan(joint.command.velocity)) joint.state.velocity = joint.command.velocity;
       if (!std::isnan(joint.command.effort)) joint.state.effort = joint.command.effort;
-
       joint.prev_command = joint.command;
     }
     return return_type::OK;
   }
 
-  if (std::any_of(
-      joints_.cbegin(), joints_.cend(), [](auto j) {
-        return !std::isnan(j.command.position) && j.command.position != j.prev_command.position;
-      }))
-  {
+  bool target_changed = false;
+  bool target_not_reached = false; 
+
+  // 各ジョイントごとのループ処理
+  for (size_t i = 0; i < joints_.size(); i++) {
+
+    if (joint_modes_[i] == "JOG") {
+      if (std::isnan(joints_[i].command.position) || std::isnan(joints_[i].command.velocity)) continue;
+
+      // 指令値自体が変わったかどうかの判定
+      if (std::isnan(joints_[i].prev_command.position) || 
+          std::abs(joints_[i].command.position - joints_[i].prev_command.position) > 1e-6 ||
+          std::abs(joints_[i].command.velocity - joints_[i].prev_command.velocity) > 1e-6) {
+        target_changed = true;
+      }
+
+      // 現在位置がまだ目標値（stop_threshold内）に達していないかどうかの判定
+      double position_error = joints_[i].command.position - joints_[i].state.position;
+      if (std::abs(position_error) >= joints_[i].stop_threshold) {
+        target_not_reached = true;
+      }
+    } 
+    else if (joint_modes_[i] == "PTP") {
+      if (std::isnan(joints_[i].command.position)) continue;
+
+      if (std::isnan(joints_[i].prev_command.position) || 
+          std::abs(joints_[i].command.position - joints_[i].prev_command.position) > 1e-3) { 
+        target_changed = true;
+        break;
+      }
+    } else {
+      RCLCPP_ERROR(rclcpp::get_logger(kUirobotHardware), "⚠️⚠️⚠️⚠️⚠️⚠️⚠️ Unknown joint mode '%s' for joint '%s'⚠️⚠️⚠️⚠️⚠️⚠️⚠️", joint_modes_[i].c_str(), info_.joints[i].name.c_str());
+      return return_type::ERROR;
+    }
+
+  } 
+
+  // 指令された値が更新された、もしくは到達していない場合はこの中に入る
+  if (target_changed || target_not_reached) {
     set_joint_positions(period);
   }
 
@@ -402,81 +533,152 @@ return_type UirobotHardware::reset_command()
   return return_type::OK;
 }
 
-CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & period)
+//モード切替えのためのコード（PTPとJOGの両方を残す）
+CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*period*/)
 {
-  const double dt = std::max(period.seconds(), 1e-3);
-
   for (size_t i = 0; i < joints_.size(); i++) {
-    double target = joints_[i].command.position;
-    double current = joints_[i].state.position;
-    double prev_target = joints_[i].prev_command.position;
+    if (joint_modes_[i] == "JOG"){
+      // RCLCPP_INFO(this->get_logger(), "---------------------------------------------------------------------");
+      double target_pos = joints_[i].command.position; 
+      double target_vel = joints_[i].command.velocity; 
+      double current_pos = joints_[i].state.position;//JOG
 
-    if (std::isnan(target) || std::isnan(current) || std::isnan(prev_target)) continue;
+      if (std::isnan(target_pos)) continue;
 
-    const double requested_target = target;
-    if (std::isfinite(joints_[i].min_pos)) {
-      target = std::max(target, joints_[i].min_pos);
-    }
-    if (std::isfinite(joints_[i].max_pos)) {
-      target = std::min(target, joints_[i].max_pos);
-    }
-    if (target != requested_target) {
-      RCLCPP_WARN(
-        rclcpp::get_logger(kUirobotHardware),
-        "Clamped joint '%s' target from %.6f to %.6f",
-        info_.joints[i].name.c_str(), requested_target, target);
-    }
+      if (std::isnan(target_vel)) {
+        target_vel = 0.0;
+      }
 
-    const double trajectory_vel = (target - prev_target) / dt;
-    const double correction_vel = (target - current) * joints_[i].kp;
-    double vel = trajectory_vel + correction_vel;
-    vel = std::clamp(
-      vel,
-      -std::fabs(joints_[i].max_vel),
-      std::fabs(joints_[i].max_vel));
-    if (
-      joints_[i].min_vel > 0.0 &&
-      std::abs(target - current) > joints_[i].stop_threshold &&
-      std::abs(vel) > 1e-6 &&
-      std::abs(vel) < joints_[i].min_vel)
-    {
-      vel = std::copysign(joints_[i].min_vel, vel);
-    }
+      // 起動時、勝手に動く問題があった。そこで、現在のpositoinと同じ場合はcontinueして何もしないようにする。
+      if (target_pos == joints_[i].prev_command.position) {
+        // コマンドが変わっていない＝待機状態なので、余計なstopやset_velを送らずにスキップ
+        continue;
+      }
 
-    double pps = vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
-    double pls = target * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+      // 目標位置と現在位置の偏差を計算
+      double position_error = target_pos - current_pos;
+      double abs_error = std::abs(position_error);
 
-    // RCLCPP_INFO(
-    //   rclcpp::get_logger(kUirobotHardware),
-    //   "Joint '%s' command: target=%.6f current=%.6f prev_target=%.6f (pls=%.2f) "
-    //   "traj_vel=%.6f corr_vel=%.6f vel=%.6f m/s (pps=%.2f)",
-    //   info_.joints[i].name.c_str(), target, current, prev_target, pls,
-    //   trajectory_vel, correction_vel, vel, pps);
+      RCLCPP_INFO(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
+      RCLCPP_INFO(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
 
-    // UIM342 PTP expects target position first, then target speed, then begin motion.
-    std::vector<uint8_t> cmd = create_commands("set_pos", joint_ids_[i], static_cast<int32_t>(pls), 0);
-    auto res = ser_->read_and_write(cmd);
-    if (res.empty()) {
+      // 絶対誤差が閾値（stop_threshold）未満になったら停止
+      if (abs_error < joints_[i].stop_threshold) {
+        RCLCPP_INFO(
+          this->get_logger(), 
+          "Joint %zu reached target. Error: %f < Threshold: %f. Sending STOP.", 
+          i, abs_error, joints_[i].stop_threshold);
+
+        std::vector<uint8_t> stop_cmd = create_commands("stop", joint_ids_[i]);
+        auto res = ser_->read_and_write(stop_cmd);
+        if (res.empty()) {
+          RCLCPP_ERROR(this->get_logger(), "Failed to send stop motion command for joint %zu", i);
+          return CallbackReturn::ERROR;
+        }
+        
+        // 目標に到達して停止したので、prev_command を現在の target_pos に同期して、
+        // 次の周期からは上の「target_pos == prev_command.position」でスキップされるようにする
+        joints_[i].prev_command.position = target_pos;
+        joints_[i].prev_command.velocity = target_vel;
+        continue; 
+      }
+
+      // 目標に達していない場合は、通常の速度ストリーミング(PV)処理
+      double cmd_vel = target_vel + (position_error * joints_[i].kp);
+      cmd_vel = std::clamp(cmd_vel, -std::fabs(joints_[i].max_vel), std::fabs(joints_[i].max_vel));
+
+      // 物理単位からパルス速度単位への変換
+      double pps = cmd_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+      int32_t target_pps = static_cast<int32_t>(std::round(pps));
+      RCLCPP_INFO(this->get_logger(), "pps: %f ", pps);
+
+      // 速度指令を送信
+      std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
+      auto res = ser_->read_and_write(cmd);
+      if (res.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to send set_vel command");
+        return CallbackReturn::ERROR;
+      }
+
+      cmd = create_commands("move", joint_ids_[i]);
+      res = ser_->read_and_write(cmd);
+      if (res.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to send move for velocity stream");
+        return CallbackReturn::ERROR;
+      }
+    
+    } else if (joint_modes_[i] == "PTP"){
+      double target_pos = joints_[i].command.position;
+      double target_vel = joints_[i].command.velocity;
+
+      if (std::isnan(target_pos)) continue;
+
+      // MoveItから速度指令（command.velocity）が来ていない（NaN）場合のセーフティ
+      if (std::isnan(target_vel) || target_vel <= 0.0) {
+        target_vel = joints_[i].max_vel; // パラメータの最大速度をデフォルトにする
+      }
+
+      // ハードウェア制限にクランプ
+      if (std::isfinite(joints_[i].min_pos)) {
+        target_pos = std::max(target_pos, joints_[i].min_pos);
+      }
+      if (std::isfinite(joints_[i].max_pos)) {
+        target_pos = std::min(target_pos, joints_[i].max_pos);
+      }
+      target_vel = std::clamp(target_vel, 0.001, std::fabs(joints_[i].max_vel));
+
+      // 物理単位 (rad, m/s) からパルス単位 (pls, pps) への変換
+      double pls = target_pos * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+      double pps = target_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
+
+      int32_t target_pls = static_cast<int32_t>(std::round(pls));
+      int32_t target_pps = static_cast<int32_t>(std::round(std::abs(pps)));
+
+      RCLCPP_INFO(this->get_logger(), "pps DEBUG: %f", pps);
+      RCLCPP_INFO(this->get_logger(), "pls DEBUG: %f", pls);
+
+      // 最低速度以下の場合はコントローラに合わせて下限を設定
+      if (target_pps < 1) target_pps = 1;
+
+      RCLCPP_INFO(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
+
+      // 💡手順1: 到達速度（PPS）を指定 (set_vel: 0x9E)
+      std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
+      auto res = ser_->read_and_write(cmd);
+      if (res.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to send set_vel");
+        return CallbackReturn::ERROR;
+      }
+
+      // 💡手順2: 目標位置（PLS）を指定 (set_pos: 0xA0)
+      cmd = create_commands("set_pos", joint_ids_[i], target_pls, 0);
+      res = ser_->read_and_write(cmd);
+      if (res.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to send set_pos");
+        return CallbackReturn::ERROR;
+      }
+
+      // 💡手順3: 実行 (move: 0x96)
+      cmd = create_commands("move", joint_ids_[i]);
+      res = ser_->read_and_write(cmd);
+      if (res.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to send move");
+        return CallbackReturn::ERROR;
+      }
+
+      // 前回値コマンドを更新して、連続送信を防ぐ
+      joints_[i].prev_command.position = joints_[i].command.position;
+      joints_[i].prev_command.velocity = joints_[i].command.velocity;
+    } else {
+      RCLCPP_ERROR(rclcpp::get_logger(kUirobotHardware), "⚠️⚠️⚠️⚠️⚠️⚠️⚠️ Unknown joint mode '%s' for joint '%s' ⚠️⚠️⚠️⚠️⚠️⚠️⚠️", joint_modes_[i].c_str(), info_.joints[i].name.c_str());
       return CallbackReturn::ERROR;
     }
 
-    cmd = create_commands("set_vel", joint_ids_[i], 0, static_cast<int32_t>(pps));
-    res = ser_->read_and_write(cmd);
-    if (res.empty()) {
-      return CallbackReturn::ERROR;
-    }
-
-    cmd = create_commands("move", joint_ids_[i]);
-    res = ser_->read_and_write(cmd);
-    if (res.empty()) {
-      return CallbackReturn::ERROR;
-    }
-
-    joints_[i].prev_command.position = target;
-  }
+  } 
 
   return CallbackReturn::SUCCESS;
 }
+
 
 CallbackReturn UirobotHardware::set_joint_params()
 {
@@ -528,6 +730,10 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[2] = 0x91;
     cmd[3] = 0x01;
     cmd[4] = 0x01;
+  } else if (mode == "get_vel") {
+    // 0x9D (JVコマンド): 現在の速度を取得 (ACK要求)
+    cmd[2] = 0x9D;
+    cmd[3] = 0x00; // 送信データ長は0
   } else if (mode == "cpr") {
     cmd[2] = 0xBD;
     cmd[3] = 0x01;
@@ -549,6 +755,9 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[7] = ((static_cast<int32_t>(vel) >> 24) & 0xFF);
   } else if (mode == "move") {
     cmd[2] = 0x96;
+  } else if (mode == "stop") {
+    cmd[2] = 0x97;  
+    cmd[3] = 0x00;
   } else {
     return {};
   }
@@ -560,11 +769,14 @@ int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
   if (mode == "get_pos" && cmd.size() < 12) {
     return 0;
   }
+  if (mode == "get_vel" && cmd.size() < 8) { 
+    return 0;
+  }
   if (mode == "cpr" && cmd.size() < 9) {
     return 0;
   }
 
-  int32_t val;
+  int32_t val = 0;
 
   if (mode == "get_pos") {
     val =
@@ -572,6 +784,12 @@ int32_t UirobotHardware::analyze_cmd(std::vector<uint8_t> cmd, std::string mode)
       ((int32_t)cmd[9] << 8) |
       ((int32_t)cmd[10] << 16) |
       ((int32_t)cmd[11] << 24);
+  } else if (mode == "get_vel") {
+    val =
+      (int32_t)cmd[4] |
+      ((int32_t)cmd[5] << 8) |
+      ((int32_t)cmd[6] << 16) |
+      ((int32_t)cmd[7] << 24);
   } else if (mode == "cpr") {
     val =
       (int32_t)cmd[5] |

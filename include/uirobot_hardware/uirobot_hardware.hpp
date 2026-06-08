@@ -82,6 +82,9 @@ private:
 
   return_type reset_command();
 
+  bool release_brake_hardware(uint8_t device_id);
+  uint16_t calculate_modbus_crc(const std::vector<uint8_t> & data);
+
   CallbackReturn set_joint_positions(const rclcpp::Duration & period);
   CallbackReturn set_joint_params();
   CallbackReturn get_joint_params();
@@ -91,6 +94,7 @@ private:
 
   std::vector<Joint> joints_;
   std::vector<uint8_t> joint_ids_;
+  std::vector<std::string> joint_modes_;
   bool torque_enabled_{false};
   bool use_dummy_{false};
   bool toggle_torque_on_configure_{false};
