@@ -41,7 +41,7 @@ def main():
     # 💡 最小限の変更で引数を受け取れるように設定
     parser = argparse.ArgumentParser(description="Release Uirobot Brake")
     parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
-    parser.add_argument('--baud', type=int, default=57600, help="Baud rate")
+    parser.add_argument('--baud', type=int, default=115200, help="Baud rate")
     parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
     args = parser.parse_known_args()[0] # 他の未知の引数があってもエラーにしない
 
