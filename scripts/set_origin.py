@@ -54,11 +54,14 @@ def hexdump(data: bytes) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Set the current UIM342 position as origin via UIM2513 gateway")
     parser.add_argument("--settle", type=float, default=0.1, help="Seconds to wait before reading ACK")
+    parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
+    parser.add_argument('--baud', type=int, default=115200, help="Baud rate")
+    parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
     args = parser.parse_args()
 
-    port = str(os.environ.get('UM_PORT'))
-    baud = 57600
-    device_id = 5
+    port = str(args.port) if args.port else None
+    baud = args.baud
+    device_id = args.id
 
     tx = build_origin_packet(device_id)
     expected = build_expected_ack(device_id)
