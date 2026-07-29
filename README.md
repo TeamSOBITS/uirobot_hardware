@@ -40,6 +40,8 @@
 This repository provides a [`ros2_control`](https://github.com/ros-controls/ros2_control) [`SystemInterface`](https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/include/hardware_interface/system_interface.hpp) implementation to operate [UIROBOT](https://www.uirobot.com/) actuators.
 Currently, this package is designed to operate the lifter mechanism mounted on the dual-arm mobile manipulator [SOBIT HOME](https://github.com/TeamSOBITS/sobit_home/tree/jazzy-devel).
 
+Documents such as datasheets are available [here](https://www.uirobot.com/serve/show-74.html).
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
@@ -260,6 +262,7 @@ See the [Issues page][issues-url] to check current bugs or request new features.
 
 * [ROS Jazzy](https://docs.ros.org/en/jazzy/index.html)
 * [ROS2 Control](https://control.ros.org/jazzy/index.html)
+* [UIROBOT](https://www.uirobot.com/)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

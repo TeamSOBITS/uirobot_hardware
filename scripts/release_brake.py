@@ -2,7 +2,7 @@
 import serial
 import time
 import os
-import argparse  # 💡 引数を処理するために追加
+import argparse  # Added to handle arguments.
 
 
 def modbus_crc16(data: bytes) -> int:
@@ -38,38 +38,38 @@ def hexdump(data: bytes):
 
 
 def main():
-    # 💡 最小限の変更で引数を受け取れるように設定
+    # Configured to accept arguments with minimal changes.
     parser = argparse.ArgumentParser(description="Release Uirobot Brake")
     parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
     parser.add_argument('--baud', type=int, default=115200, help="Baud rate")
     parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
     args = parser.parse_known_args()[0] # 他の未知の引数があってもエラーにしない
 
-    # 💡 パースした値を代入（型を一致させています）
+    # Assign the parsed value (matching the type).
     port = str(args.port) if args.port else None
     baud = args.baud
     device_id = args.id
 
-    # 🚨 ポートが指定されていない場合のセーフティ
+    # Safety when no port is specified
     if not port or port == "None":
         print("❌ Error: Serial port is not specified. Please set UM_PORT or pass --port.")
         return
 
     expected_reply = bytes([
         0xAA,
-        device_id, 0x10, 0x03,  # 💡 デバイスIDが変わっても動くようにマジックナンバー0x05をdevice_idに変更
+        device_id, 0x10, 0x03,  # Changed the magic number 0x05 to `device_id` so that it works even if the device ID changes.
         0x05, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xF3, 0x91,             # ⚠️ 注意: IDが変わるとCRCも変わるため、後述のチェック方法を修正
+        0xF3, 0x91,             # Note: Since the CRC changes when the ID changes, the checking method described below has been revised.
         0xCC
     ])
 
     tx = build_packet(device_id)
 
     print("Sending:", hexdump(tx))
-    # 💡 expected_replyのCRCは固定値 [0xF3, 0x91] のままなので、期待値の表示はtxのパケットを元に構築する、
-    # あるいは返答の成否判定を「返ってきたデータの長さとコマンド(0x10)」で行うのがより正確です。
-    # ここではコードの形を崩さないよう、そのまま出力します。
+    # Since the CRC of expected_reply remains a fixed value [0xF3, 0x91], the expected value is constructed based on the tx packet.
+    # Alternatively, it is more accurate to determine the success or failure of the response based on the length of the returned data and the command (0x10).
+    # Here, the code is output exactly as is, without altering its formatting.
     print("Expect (Static):", hexdump(expected_reply))
 
     with serial.Serial(port, baud, timeout=1) as ser:
@@ -81,7 +81,7 @@ def main():
         rx = ser.read(16)
         print("Received:", hexdump(rx))
 
-        # 💡 ID変更に対応するため、完全一致(==)ではなく「長さが16バイト」かつ「ヘッダーとID、コマンドの一致」で判定
+        # To accommodate ID changes, the check is based on the length being 16 bytes and a match in the header, ID, and command, rather than using an exact match (==).
         if len(rx) == 16 and rx[0] == 0xAA and rx[1] == device_id and rx[2] == 0x10:
             print(f"✅ Brake released successfully (ACK matched for ID {device_id})")
         else:

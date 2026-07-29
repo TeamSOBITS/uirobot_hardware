@@ -40,6 +40,8 @@
 本リポジトリは[UIROBOT](https://www.uirobot.com/)アクチュエータを動作させるための[`ros2_control`](https://github.com/ros-controls/ros2_control)の[`SystemInterface`](https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/include/hardware_interface/system_interface.hpp)を提供します.
 現レポジトリは，双腕型モバイルマニピュレータ[SOBIT HOME](https://github.com/TeamSOBITS/sobit_home/tree/jazzy-devel)に搭載されている昇降機構を動かすためのパッケージとなっています．
 
+データシートなどの資料は[こちら](https://www.uirobot.com/serve/show-74.html)になります．
+
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
@@ -260,6 +262,7 @@ robot_state_publisher_node = Node(
 
 * [ROS Jazzy](https://docs.ros.org/en/jazzy/index.html)
 * [ROS2 Control](https://control.ros.org/jazzy/index.html)
+* [UIROBOT](https://www.uirobot.com/)
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
