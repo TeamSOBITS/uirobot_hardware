@@ -193,12 +193,12 @@ uint16_t UirobotHardware::calculate_modbus_crc(const std::vector<uint8_t> & data
 
 bool UirobotHardware::release_brake_hardware(uint8_t device_id)
 {
-  if (!ser_) {//そもそもシリアルが繋がってないとき
+  if (!ser_) {//When the serial number isn't even connected in the first place
     RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Serial port object is null.", device_id);
     return false;
   }
 
-  // release_brake.py を参考にコマンド構築
+  // Construct the command based on release_brake.py.
   std::vector<uint8_t> payload = {
     device_id, 0x90, 0x03,
     0x05, 0x00, 0x00,
@@ -209,19 +209,19 @@ bool UirobotHardware::release_brake_hardware(uint8_t device_id)
   uint8_t crc_lo = crc & 0xFF;
   uint8_t crc_hi = (crc >> 8) & 0xFF;
 
-  // パケット全体の組み立て (Header: 0xAA, Footer: 0xCC)
+  // Construct the entire packet (Header: 0xAA, Footer: 0xCC)
   std::vector<uint8_t> packet;
   packet.reserve(1 + payload.size() + 2 + 1);
-  packet.push_back(0xAA); // ヘッダー
+  packet.push_back(0xAA); // Header
   packet.insert(packet.end(), payload.begin(), payload.end());
   packet.push_back(crc_lo);
   packet.push_back(crc_hi);
-  packet.push_back(0xCC); // フッター
+  packet.push_back(0xCC); // Footer
 
-  // モーターへ送信し、レスポンスを受け取る
+  // Send command to motor and receive response
   auto reply = ser_->read_and_write(packet);
 
-  // 送信失敗、または空の返答の場合.接続成功時，失敗時に視覚的分かりすいログを出力する
+  // If transmission fails or empty response is received, output visual log
   if (reply.empty()) {
     RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Connection failed. No response received.", device_id);
     return false;
@@ -374,11 +374,11 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     }
     
     int32_t raw_velocity = analyze_cmd(res_vel, "get_vel");
-    // pps単位から m/s 単位への変換
+    // Conversion from pps to m/s
     const double velocity =
       (static_cast<double>(raw_velocity) / joints_[i].cpr * (2 * M_PI)) / joints_[i].gear_ratio;
     
-    // デバッグ用ログ
+    // Debug logs
     // RCLCPP_INFO(this->get_logger(), "raw_velocity DEBUG: %d", raw_velocity);
     // RCLCPP_INFO(this->get_logger(), "velocity DEBUG: %f", velocity);
     // RCLCPP_INFO(this->get_logger(), "joints_[i].cpr DEBUG: %d", joints_[i].cpr);
@@ -420,10 +420,10 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
   return return_type::OK;
 }
 
-//モード切替えのためのコード（PTPとJOGの両方を残す）
+//Code for mode switching (retaining both PTP and JOG)
 hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
-  // Mimic jointの処理
+  // Handling of Mimic joints
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
@@ -451,20 +451,20 @@ hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*ti
   bool target_changed = false;
   bool target_not_reached = false; 
 
-  // 各ジョイントごとのループ処理
+  // Loop processing for each joint
   for (size_t i = 0; i < joints_.size(); i++) {
 
     if (joint_modes_[i] == "JOG") {
       if (std::isnan(joints_[i].command.position) || std::isnan(joints_[i].command.velocity)) continue;
 
-      // 指令値自体が変わったかどうかの判定
+      // Check if the command values themselves have changed
       if (std::isnan(joints_[i].prev_command.position) || 
           std::abs(joints_[i].command.position - joints_[i].prev_command.position) > 1e-6 ||
           std::abs(joints_[i].command.velocity - joints_[i].prev_command.velocity) > 1e-6) {
         target_changed = true;
       }
 
-      // 現在位置がまだ目標値（stop_threshold内）に達していないかどうかの判定
+      // Check if the current position has not yet reached the target value (within stop_threshold)
       double position_error = joints_[i].command.position - joints_[i].state.position;
       if (std::abs(position_error) >= joints_[i].stop_threshold) {
         target_not_reached = true;
@@ -485,7 +485,7 @@ hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*ti
 
   } 
 
-  // 指令された値が更新された、もしくは到達していない場合はこの中に入る
+  // If the commanded values have been updated or not yet reached, enter this block
   if (target_changed || target_not_reached) {
     set_joint_positions(period);
   }
@@ -533,7 +533,7 @@ return_type UirobotHardware::reset_command()
   return return_type::OK;
 }
 
-//モード切替えのためのコード（PTPとJOGの両方を残す）
+//Code for mode switching (retaining both PTP and JOG)
 CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*period*/)
 {
   for (size_t i = 0; i < joints_.size(); i++) {
@@ -549,20 +549,20 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         target_vel = 0.0;
       }
 
-      // 起動時、勝手に動く問題があった。そこで、現在のpositoinと同じ場合はcontinueして何もしないようにする。
+      // There was an issue where it would move unexpectedly upon startup. To address this, I added logic to check if the current position matches the target; if so, the process simply continues without taking any action.
       if (target_pos == joints_[i].prev_command.position) {
-        // コマンドが変わっていない＝待機状態なので、余計なstopやset_velを送らずにスキップ
+        // Since the command remains unchanged—indicating a standby state—skip sending unnecessary 'stop' or 'set_vel' commands.
         continue;
       }
 
-      // 目標位置と現在位置の偏差を計算
+      // Calculate the deviation between the target position and the current position.
       double position_error = target_pos - current_pos;
       double abs_error = std::abs(position_error);
 
-      RCLCPP_INFO(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
-      RCLCPP_INFO(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
+      // RCLCPP_INFO(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
+      // RCLCPP_INFO(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
 
-      // 絶対誤差が閾値（stop_threshold）未満になったら停止
+      // Stop when the absolute error falls below the threshold (stop_threshold).
       if (abs_error < joints_[i].stop_threshold) {
         RCLCPP_INFO(
           this->get_logger(), 
@@ -576,23 +576,23 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
           return CallbackReturn::ERROR;
         }
         
-        // 目標に到達して停止したので、prev_command を現在の target_pos に同期して、
-        // 次の周期からは上の「target_pos == prev_command.position」でスキップされるようにする
+        // Since the target has been reached and movement has stopped, synchronize prev_command with the current target_pos
+        // so that the operation is skipped in the next cycle via the "target_pos == prev_command.position" check above.
         joints_[i].prev_command.position = target_pos;
         joints_[i].prev_command.velocity = target_vel;
         continue; 
       }
 
-      // 目標に達していない場合は、通常の速度ストリーミング(PV)処理
+      // If the target has not been reached, standard-speed streaming (PV) processing is performed.
       double cmd_vel = target_vel + (position_error * joints_[i].kp);
       cmd_vel = std::clamp(cmd_vel, -std::fabs(joints_[i].max_vel), std::fabs(joints_[i].max_vel));
 
-      // 物理単位からパルス速度単位への変換
+      // Conversion from physical units to pulse rate units
       double pps = cmd_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
       int32_t target_pps = static_cast<int32_t>(std::round(pps));
-      RCLCPP_INFO(this->get_logger(), "pps: %f ", pps);
+      // RCLCPP_INFO(this->get_logger(), "pps: %f ", pps);
 
-      // 速度指令を送信
+      // Send speed command
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
       auto res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -613,12 +613,12 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
 
       if (std::isnan(target_pos)) continue;
 
-      // MoveItから速度指令（command.velocity）が来ていない（NaN）場合のセーフティ
+      // Safety when no speed command (command.velocity) is received from MoveIt (NaN)
       if (std::isnan(target_vel) || target_vel <= 0.0) {
-        target_vel = joints_[i].max_vel; // パラメータの最大速度をデフォルトにする
+        target_vel = joints_[i].max_vel; // Set the maximum velocity from parameters as default
       }
 
-      // ハードウェア制限にクランプ
+      // Clamp to hardware limits
       if (std::isfinite(joints_[i].min_pos)) {
         target_pos = std::max(target_pos, joints_[i].min_pos);
       }
@@ -627,22 +627,22 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
       }
       target_vel = std::clamp(target_vel, 0.001, std::fabs(joints_[i].max_vel));
 
-      // 物理単位 (rad, m/s) からパルス単位 (pls, pps) への変換
+      // Conversion from physical units to pulse rate units
       double pls = target_pos * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
       double pps = target_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
 
       int32_t target_pls = static_cast<int32_t>(std::round(pls));
       int32_t target_pps = static_cast<int32_t>(std::round(std::abs(pps)));
 
-      RCLCPP_INFO(this->get_logger(), "pps DEBUG: %f", pps);
-      RCLCPP_INFO(this->get_logger(), "pls DEBUG: %f", pls);
+      // RCLCPP_INFO(this->get_logger(), "pps DEBUG: %f", pps);
+      // RCLCPP_INFO(this->get_logger(), "pls DEBUG: %f", pls);
 
-      // 最低速度以下の場合はコントローラに合わせて下限を設定
+      // If the speed is below the minimum, set the limit according to the controller
       if (target_pps < 1) target_pps = 1;
 
-      RCLCPP_INFO(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
+      // RCLCPP_INFO(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
 
-      // 💡手順1: 到達速度（PPS）を指定 (set_vel: 0x9E)
+      // Step 1: Specify target speed (PPS) (set_vel: 0x9E)
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
       auto res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -650,7 +650,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // 💡手順2: 目標位置（PLS）を指定 (set_pos: 0xA0)
+      // Step 2: Specify the target position (PLS) (set_pos: 0xA0)
       cmd = create_commands("set_pos", joint_ids_[i], target_pls, 0);
       res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -658,7 +658,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // 💡手順3: 実行 (move: 0x96)
+      // Step 3: Execute (move: 0x96)
       cmd = create_commands("move", joint_ids_[i]);
       res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -666,7 +666,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // 前回値コマンドを更新して、連続送信を防ぐ
+      // Update the previous command values to prevent continuous transmission
       joints_[i].prev_command.position = joints_[i].command.position;
       joints_[i].prev_command.velocity = joints_[i].command.velocity;
     } else {
@@ -731,9 +731,9 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[3] = 0x01;
     cmd[4] = 0x01;
   } else if (mode == "get_vel") {
-    // 0x9D (JVコマンド): 現在の速度を取得 (ACK要求)
+    // 0x9D (JV Command): Get current speed (ACK requested)
     cmd[2] = 0x9D;
-    cmd[3] = 0x00; // 送信データ長は0
+    cmd[3] = 0x00; // The transmission data length is 0.
   } else if (mode == "cpr") {
     cmd[2] = 0xBD;
     cmd[3] = 0x01;

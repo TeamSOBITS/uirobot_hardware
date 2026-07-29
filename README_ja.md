@@ -10,50 +10,50 @@
 
 # Uirobot Hardware
 
-<!-- TABLE OF CONTENTS -->
+<!-- 目次 -->
 <details>
-  <summary>Table of Contents</summary>
+  <summary>目次</summary>
   <ol>
     <li>
-      <a href="#overview">Overview</a>
+      <a href="#概要">概要</a>
     </li>
     <li>
-      <a href="#setup">Setup</a>
+      <a href="#環境構築">環境構築</a>
       <ul>
-        <li><a href="#environment-requirements">Environment Requirements</a></li>
-        <li><a href="#installation">Installation</a></li>
+        <li><a href="#環境条件">環境条件</a></li>
+        <li><a href="#インストール方法">インストール方法</a></li>
       </ul>
     </li>
-    <li><a href="#configuration">Configuration</a></li>
-    <li><a href="#milestones">Milestones</a></li>
+    <li><a href="#設定方法">設定方法</a></li>
+    <li><a href="#マイルストーン">マイルストーン</a></li>
     <!-- <li><a href="#contributing">Contributing</a></li> -->
     <!-- <li><a href="#license">License</a></li> -->
-    <li><a href="#references">References</a></li>
+    <li><a href="#参考文献">参考文献</a></li>
   </ol>
 </details>
 
 
 
-<!-- OVERVIEW -->
-## Overview
+<!-- 概要 -->
+## 概要
 
-This repository provides a [`ros2_control`](https://github.com/ros-controls/ros2_control) [`SystemInterface`](https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/include/hardware_interface/system_interface.hpp) implementation to operate [UIROBOT](https://www.uirobot.com/) actuators.
-Currently, this package is designed to operate the lifter mechanism mounted on the dual-arm mobile manipulator [SOBIT HOME](https://github.com/TeamSOBITS/sobit_home/tree/jazzy-devel).
+本リポジトリは[UIROBOT](https://www.uirobot.com/)アクチュエータを動作させるための[`ros2_control`](https://github.com/ros-controls/ros2_control)の[`SystemInterface`](https://github.com/ros-controls/ros2_control/blob/master/hardware_interface/include/hardware_interface/system_interface.hpp)を提供します.
+現レポジトリは，双腕型モバイルマニピュレータ[SOBIT HOME](https://github.com/TeamSOBITS/sobit_home/tree/jazzy-devel)に搭載されている昇降機構を動かすためのパッケージとなっています．
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-<!-- SETUP -->
-## Setup
-
-This section describes how to set up this repository.
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
-### Environment Requirements
+<!-- セットアップ -->
+## セットアップ
 
-Please make sure your environment meets the following conditions before proceeding to the installation step.
+ここで，本レポジトリのセットアップ方法について説明します．
+
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+
+
+### 環境条件
+
+まず，以下の環境を整えてから，次のインストール段階に進んでください．
 
 | System  | Version |
 | --- | --- |
@@ -62,64 +62,64 @@ Please make sure your environment meets the following conditions before proceedi
 | Python | 3.12 |
 
 > [!NOTE]
-> For instructions on installing `Ubuntu` and `ROS`, please refer to the [SOBITS Manual](https://github.com/TeamSOBITS/sobits_manual#%E9%96%8B%E7%99%BA%E7%92%B0%E5%A2%83%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6).
+> `Ubuntu`や`ROS`のインストール方法に関しては，[SOBITS Manual](https://github.com/TeamSOBITS/sobits_manual#%E9%96%8B%E7%99%BA%E7%92%B0%E5%A2%83%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6)に参照してください．
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
-### Installation
+### インストール方法
 
-1. Go to your ROS `src` directory.
+1. ROSの`src`フォルダに移動します．
     ```sh
     $ cd ~/colcon_ws/src/
     ```
 
-2. Clone this repository.
+2. 本レポジトリをcloneします．
     ```sh
     $ git clone https://github.com/TeamSOBITS/uirobot_hardware
     ```
 
-3. Navigate into the repository directory.
+3. レポジトリの中へ移動します．
     ```sh
     $ cd uirobot_hardware/
     ```
 
-4. Install dependent packages.
+4. 依存パッケージをインストールします．
     ```sh
     $ bash install.sh
     ```
 
-5. Build the package.
+5. パッケージをコンパイルします．
     ```sh
     $ cd ~/colcon_ws/
     $ colcon build --symlink-install
     $ source ~/colcon_ws/install/setup.sh
     ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
-<!-- CONFIGURATION -->
-## Configuration
+<!-- 設定方法 -->
+## 設定方法
 
-1. Set up the actuator controller parameters in your robot's URDF.
+1. ロボットのURDFにアクチュエータのコントローラを設定します．
 
-| Parameter | Type | Example | Description |
+| パラメータ | 型 | 一例 | 説明 |
 | --- | --- | --- | --- |
-| port_name | string | /dev/ttyUSB0 | USB port name |
-| baud_rate | int | 115200 | Communication speed with Uirobot Motor |
-| use_dummy | bool | true | Whether to use a dummy actuator |
-| id | int | 1 | Uirobot Motor ID |
-| gear_ratio | float | 1.0 | Gear ratio or linear actuator conversion ratio |
-| position_kp | float | 0.7 | Gain adjustment parameter |
-| stop_threshold | float | 0.00005 | Threshold value to stop when reaching target position |
-| min_velocity | float | 0.01 | Minimum velocity limit (m/s) |
-| max_velocity | float | 0.03 | Maximum velocity limit (m/s) |
-| mode | string | JOG or PTP | Switch operating mode on the motor chip |
+| port_name | string | /dev/ttyUSB0 | USBポート名 |
+| baud_rate | int | 115200 | Uirobot Motorとの通信速度 |
+| use_dummy | bool | true | ダミーアクチュエータを使用するかどうか |
+| id | int | 1 | Uirobot MotorのID |
+| gear_ratio | float | 1.0 | ギア比やリニアアクチュエータ変換比 |
+| position_kp | float | 0.7 | ゲインの調整 |
+| stop_threshold | float | 0.00005 | 目標位置に対しストップするときのしきい値 |
+| min_velocity | float | 0.01 | 速度の下限値(m/s) |
+| max_velocity | float | 0.03 | 速度の上限値(m/s) |
+| mode | string | JOG or PTP | モータのチップにあるモードの切り替え |
 
 
-Here is an example configuration.
-An actual usage example can be viewed [here](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_description/urdf/controllers.urdf.xacro).
+設定の一例はこちらとなります．
+実際の使用例は，[こちら](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_description/urdf/controllers.urdf.xacro)から閲覧できます．
 ```xml
 <?xml version="1.0" encoding="UTF-8" ?>
 <robot name="robot_name" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -151,17 +151,17 @@ An actual usage example can be viewed [here](https://github.com/TeamSOBITS/sobit
 </robot>
 ```
 
-2. Next is the setting for `controller manager`. Modify the settings according to the number of controllers and actuators used.
-An actual usage example can be viewed [here](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_control/config/controllers.yaml).
+2. 次は`controller manager`の設定となります．使用されるコントローラ・アクチュエータの数に応じて設定を変更してください．
+実際の使用例は，[こちら](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_control/config/controllers.yaml)から閲覧できます．
 ```yaml
 /**/controller_manager:
   ros__parameters:
     update_rate: 10  # Hz
 
-    joint_trajectory_controller: # JOG mode
+    joint_trajectory_controller: #JOGモード
       type: joint_trajectory_controller/JointTrajectoryController
     
-    # joint_trajectory_controller: # PTP mode
+    # joint_trajectory_controller: #PTPモード
     #   type: position_controllers/JointGroupPositionController
 
     joint_state_broadcaster:
@@ -183,8 +183,8 @@ An actual usage example can be viewed [here](https://github.com/TeamSOBITS/sobit
     allow_partial_joints_goal: true
 ```
 
-3. Finally, launch the controllers along with the configured parameters when running the robot.
-An actual usage example can be viewed [here](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_bringup/launch/robot.launch.py).
+3. 最後に，設定したパラメータ等をロボットを実行する際に，コントローラを立ち上げます．
+実際の使用例は，[こちら](https://github.com/TeamSOBITS/sobit_home/blob/jazzy-devel/sobit_home_bringup/launch/robot.launch.py)から閲覧できます．
 ```py
 robot_description = os.path.join(get_package_share_directory(
     'robot_description'), 
@@ -242,26 +242,26 @@ robot_state_publisher_node = Node(
 )
 ```
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
-<!-- MILESTONES -->
-## Milestones
+<!-- マイルストーン -->
+## マイルストーン
 
 - [] ---
 
-See the [Issues page][issues-url] to check current bugs or request new features.
+現時点のバッグや新規機能の依頼を確認するために[Issueページ][issues-url] をご覧ください．
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
-<!-- REFERENCES -->
-## References
+<!-- 参考文献 -->
+## 参考文献
 
 * [ROS Jazzy](https://docs.ros.org/en/jazzy/index.html)
 * [ROS2 Control](https://control.ros.org/jazzy/index.html)
 
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
 
