@@ -586,8 +586,8 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
       double position_error = target_pos - current_pos;
       double abs_error = std::abs(position_error);
 
-      RCLCPP_INFO(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
-      RCLCPP_INFO(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
+      RCLCPP_DEBUG(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
+      RCLCPP_DEBUG(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
 
       // 絶対誤差が閾値（stop_threshold）未満になったら停止
       if (abs_error < joints_[i].stop_threshold) {
@@ -617,7 +617,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
       // 物理単位からパルス速度単位への変換
       double pps = cmd_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
       int32_t target_pps = static_cast<int32_t>(std::round(pps));
-      RCLCPP_INFO(this->get_logger(), "pps: %f ", pps);
+      RCLCPP_DEBUG(this->get_logger(), "pps: %f ", pps);
 
       // 速度指令を送信
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
@@ -661,13 +661,13 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
       int32_t target_pls = static_cast<int32_t>(std::round(pls));
       int32_t target_pps = static_cast<int32_t>(std::round(std::abs(pps)));
 
-      RCLCPP_INFO(this->get_logger(), "pps DEBUG: %f", pps);
-      RCLCPP_INFO(this->get_logger(), "pls DEBUG: %f", pls);
+      RCLCPP_DEBUG(this->get_logger(), "pps DEBUG: %f", pps);
+      RCLCPP_DEBUG(this->get_logger(), "pls DEBUG: %f", pls);
 
       // 最低速度以下の場合はコントローラに合わせて下限を設定
       if (target_pps < 1) target_pps = 1;
 
-      RCLCPP_INFO(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
+      RCLCPP_DEBUG(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
 
       // 💡手順1: 到達速度（PPS）を指定 (set_vel: 0x9E)
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
