@@ -116,18 +116,26 @@ bool SerialPort::close() {
 }
 
 std::vector<uint8_t> SerialPort::read_and_write(const std::vector<uint8_t>& command) {
+  constexpr std::size_t kReplyFrameSize = 16;
+  // Short timeout so a dead gateway cannot stall the ros2_control read() cycle.
+  constexpr std::size_t kReadTimeoutMs = 50;
+
   try {
     port_.FlushInputBuffer();
     port_.Write(command);
-    // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    LibSerial::DataBuffer buffer;
-    port_.Read(buffer, 16, 1000);
-    std::vector<uint8_t> response(buffer.begin(), buffer.end());
-    return response;
-  }
-  catch (...) {
+  } catch (...) {
     return {};
   }
+
+  LibSerial::DataBuffer buffer;
+  try {
+    port_.Read(buffer, kReplyFrameSize, kReadTimeoutMs);
+  } catch (const LibSerial::ReadTimeout&) {
+    // Return the partial reply; callers validate length.
+  } catch (...) {
+    return {};
+  }
+  return std::vector<uint8_t>(buffer.begin(), buffer.end());
 }
 
 }  // namespace uirobot_driver

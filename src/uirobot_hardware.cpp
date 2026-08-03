@@ -193,12 +193,12 @@ uint16_t UirobotHardware::calculate_modbus_crc(const std::vector<uint8_t> & data
 
 bool UirobotHardware::release_brake_hardware(uint8_t device_id)
 {
-  if (!ser_) {//When the serial number isn't even connected in the first place
+  if (!ser_) {  // Serial port was never opened.
     RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Serial port object is null.", device_id);
     return false;
   }
 
-  // Construct the command based on release_brake.py.
+  // Command layout follows release_brake.py.
   std::vector<uint8_t> payload = {
     device_id, 0x90, 0x03,
     0x05, 0x00, 0x00,
@@ -209,19 +209,17 @@ bool UirobotHardware::release_brake_hardware(uint8_t device_id)
   uint8_t crc_lo = crc & 0xFF;
   uint8_t crc_hi = (crc >> 8) & 0xFF;
 
-  // Construct the entire packet (Header: 0xAA, Footer: 0xCC)
+  // Assemble the full packet (header: 0xAA, footer: 0xCC).
   std::vector<uint8_t> packet;
   packet.reserve(1 + payload.size() + 2 + 1);
-  packet.push_back(0xAA); // Header
+  packet.push_back(0xAA); // header
   packet.insert(packet.end(), payload.begin(), payload.end());
   packet.push_back(crc_lo);
   packet.push_back(crc_hi);
-  packet.push_back(0xCC); // Footer
+  packet.push_back(0xCC); // footer
 
-  // Send command to motor and receive response
+  // Send to the motor and read the response.
   auto reply = ser_->read_and_write(packet);
-
-  // If transmission fails or empty response is received, output visual log
   if (reply.empty()) {
     RCLCPP_WARN(rclcpp::get_logger(kUirobotHardware), "⚠️ [ID: %d] Connection failed. No response received.", device_id);
     return false;
@@ -239,6 +237,9 @@ bool UirobotHardware::release_brake_hardware(uint8_t device_id)
 CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "configure");
+
+  // Reset the read() failure tolerance.
+  consecutive_read_failures_ = 0;
 
   for (uint i = 0; i < joints_.size(); i++) {
     if (std::isnan(joints_[i].state.position)) {
@@ -339,15 +340,35 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     return return_type::OK;
   }
 
+  // Keep previous state on transient read failures; error out only after ~2 s (40 cycles).
+  constexpr int kMaxConsecutiveReadFailures = 40;
+  auto handle_read_failure = [this](const char * what, uint joint, size_t reply_size) {
+    ++consecutive_read_failures_;
+    if (consecutive_read_failures_ >= kMaxConsecutiveReadFailures) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "Failed to read %s for joint '%s' (reply size=%zu) %d times in a row, giving up",
+        what, info_.joints[joint].name.c_str(), reply_size, consecutive_read_failures_);
+      return return_type::ERROR;
+    }
+    RCLCPP_WARN(
+      rclcpp::get_logger(kUirobotHardware),
+      "Failed to read %s for joint '%s' (reply size=%zu), keeping previous state (%d/%d)",
+      what, info_.joints[joint].name.c_str(), reply_size,
+      consecutive_read_failures_, kMaxConsecutiveReadFailures);
+    return return_type::OK;
+  };
+
+  bool read_failed = false;
   for (uint i = 0; i < joint_ids_.size(); i++) {
     std::vector<uint8_t> cmd = create_commands("get_pos", joint_ids_[i]);
     std::vector<uint8_t> res = ser_->read_and_write(cmd);
     if (res.size() < 12) {
-      RCLCPP_ERROR(
-        rclcpp::get_logger(kUirobotHardware),
-        "Failed to read position for joint '%s' (reply size=%zu)",
-        info_.joints[i].name.c_str(), res.size());
-      return return_type::ERROR;
+      if (handle_read_failure("position", i, res.size()) == return_type::ERROR) {
+        return return_type::ERROR;
+      }
+      read_failed = true;
+      break;
     }
     const double position =
       (static_cast<float>(analyze_cmd(res, "get_pos")) / joints_[i].cpr * (2 * M_PI)) /
@@ -366,19 +387,19 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     std::vector<uint8_t> cmd_vel = create_commands("get_vel", joint_ids_[i]);
     std::vector<uint8_t> res_vel = ser_->read_and_write(cmd_vel);
     if (res_vel.size() < 8) {
-      RCLCPP_ERROR(
-        rclcpp::get_logger(kUirobotHardware),
-        "Failed to read velocity for joint '%s' (reply size=%zu)",
-        info_.joints[i].name.c_str(), res_vel.size());
-      return return_type::ERROR;
+      if (handle_read_failure("velocity", i, res_vel.size()) == return_type::ERROR) {
+        return return_type::ERROR;
+      }
+      read_failed = true;
+      break;
     }
     
     int32_t raw_velocity = analyze_cmd(res_vel, "get_vel");
-    // Conversion from pps to m/s
+    // Convert pps to m/s.
     const double velocity =
       (static_cast<double>(raw_velocity) / joints_[i].cpr * (2 * M_PI)) / joints_[i].gear_ratio;
-    
-    // Debug logs
+
+    // Debug logging
     // RCLCPP_INFO(this->get_logger(), "raw_velocity DEBUG: %d", raw_velocity);
     // RCLCPP_INFO(this->get_logger(), "velocity DEBUG: %f", velocity);
     // RCLCPP_INFO(this->get_logger(), "joints_[i].cpr DEBUG: %d", joints_[i].cpr);
@@ -387,6 +408,10 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     joints_[i].state.position = position;
     joints_[i].state.velocity = velocity;
     joints_[i].state.effort   = 0.0;
+  }
+
+  if (!read_failed) {
+    consecutive_read_failures_ = 0;
   }
 
   for (auto & joint : joints_) {
@@ -420,10 +445,10 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
   return return_type::OK;
 }
 
-//Code for mode switching (retaining both PTP and JOG)
+// Supports both PTP and JOG joint modes.
 hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*time*/, const rclcpp::Duration & period)
 {
-  // Handling of Mimic joints
+  // Propagate commands to mimic joints.
   for (auto & joint : joints_) {
     if (joint.mimic_index != -1) {
       const auto & src = joints_[joint.mimic_index];
@@ -485,7 +510,7 @@ hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*ti
 
   } 
 
-  // If the commanded values have been updated or not yet reached, enter this block
+  // Send commands only when the target changed or has not been reached yet.
   if (target_changed || target_not_reached) {
     set_joint_positions(period);
   }
@@ -533,7 +558,7 @@ return_type UirobotHardware::reset_command()
   return return_type::OK;
 }
 
-//Code for mode switching (retaining both PTP and JOG)
+// Supports both PTP and JOG joint modes.
 CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*period*/)
 {
   for (size_t i = 0; i < joints_.size(); i++) {
@@ -549,20 +574,20 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         target_vel = 0.0;
       }
 
-      // There was an issue where it would move unexpectedly upon startup. To address this, I added logic to check if the current position matches the target; if so, the process simply continues without taking any action.
+      // Guard against unwanted motion at startup: an unchanged command means
+      // idle, so skip without sending extra stop/set_vel.
       if (target_pos == joints_[i].prev_command.position) {
-        // Since the command remains unchanged—indicating a standby state—skip sending unnecessary 'stop' or 'set_vel' commands.
         continue;
       }
 
-      // Calculate the deviation between the target position and the current position.
+      // Error between target and current position.
       double position_error = target_pos - current_pos;
       double abs_error = std::abs(position_error);
 
-      // RCLCPP_INFO(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
-      // RCLCPP_INFO(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
+      RCLCPP_DEBUG(this->get_logger(), "current_pos: %f target_pos: %f.", current_pos, target_pos);
+      RCLCPP_DEBUG(this->get_logger(), "abs_error: %f < stop_threshold: %f.", abs_error, joints_[i].stop_threshold);
 
-      // Stop when the absolute error falls below the threshold (stop_threshold).
+      // Stop once the absolute error drops below stop_threshold.
       if (abs_error < joints_[i].stop_threshold) {
         RCLCPP_INFO(
           this->get_logger(), 
@@ -576,23 +601,23 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
           return CallbackReturn::ERROR;
         }
         
-        // Since the target has been reached and movement has stopped, synchronize prev_command with the current target_pos
-        // so that the operation is skipped in the next cycle via the "target_pos == prev_command.position" check above.
+        // Target reached and stopped: sync prev_command to target_pos so the
+        // unchanged-command check above skips the following cycles.
         joints_[i].prev_command.position = target_pos;
         joints_[i].prev_command.velocity = target_vel;
         continue; 
       }
 
-      // If the target has not been reached, standard-speed streaming (PV) processing is performed.
+      // Target not reached: normal velocity streaming (PV).
       double cmd_vel = target_vel + (position_error * joints_[i].kp);
       cmd_vel = std::clamp(cmd_vel, -std::fabs(joints_[i].max_vel), std::fabs(joints_[i].max_vel));
 
-      // Conversion from physical units to pulse rate units
+      // Convert physical units to pulse velocity.
       double pps = cmd_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
       int32_t target_pps = static_cast<int32_t>(std::round(pps));
-      // RCLCPP_INFO(this->get_logger(), "pps: %f ", pps);
+      RCLCPP_DEBUG(this->get_logger(), "pps: %f ", pps);
 
-      // Send speed command
+      // Send the velocity command.
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
       auto res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -627,22 +652,22 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
       }
       target_vel = std::clamp(target_vel, 0.001, std::fabs(joints_[i].max_vel));
 
-      // Conversion from physical units to pulse rate units
+      // Convert physical units (rad, m/s) to pulse units (pls, pps).
       double pls = target_pos * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
       double pps = target_vel * joints_[i].cpr * joints_[i].gear_ratio / (2 * M_PI);
 
       int32_t target_pls = static_cast<int32_t>(std::round(pls));
       int32_t target_pps = static_cast<int32_t>(std::round(std::abs(pps)));
 
-      // RCLCPP_INFO(this->get_logger(), "pps DEBUG: %f", pps);
-      // RCLCPP_INFO(this->get_logger(), "pls DEBUG: %f", pls);
+      RCLCPP_DEBUG(this->get_logger(), "pps DEBUG: %f", pps);
+      RCLCPP_DEBUG(this->get_logger(), "pls DEBUG: %f", pls);
 
-      // If the speed is below the minimum, set the limit according to the controller
+      // Enforce the controller's minimum speed.
       if (target_pps < 1) target_pps = 1;
 
-      // RCLCPP_INFO(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
+      RCLCPP_DEBUG(this->get_logger(), "PTP Command Joint %zu: Target PLS=%d, Speed PPS=%d", i, target_pls, target_pps);
 
-      // Step 1: Specify target speed (PPS) (set_vel: 0x9E)
+      // Step 1: set the travel speed in PPS (set_vel: 0x9E).
       std::vector<uint8_t> cmd = create_commands("set_vel", joint_ids_[i], 0, target_pps);
       auto res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -650,7 +675,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // Step 2: Specify the target position (PLS) (set_pos: 0xA0)
+      // Step 2: set the target position in PLS (set_pos: 0xA0).
       cmd = create_commands("set_pos", joint_ids_[i], target_pls, 0);
       res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -658,7 +683,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // Step 3: Execute (move: 0x96)
+      // Step 3: execute (move: 0x96).
       cmd = create_commands("move", joint_ids_[i]);
       res = ser_->read_and_write(cmd);
       if (res.empty()) {
@@ -666,7 +691,7 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
         return CallbackReturn::ERROR;
       }
 
-      // Update the previous command values to prevent continuous transmission
+      // Update prev_command to avoid re-sending the same target.
       joints_[i].prev_command.position = joints_[i].command.position;
       joints_[i].prev_command.velocity = joints_[i].command.velocity;
     } else {
@@ -731,9 +756,9 @@ std::vector<uint8_t> UirobotHardware::create_commands(std::string mode, int id, 
     cmd[3] = 0x01;
     cmd[4] = 0x01;
   } else if (mode == "get_vel") {
-    // 0x9D (JV Command): Get current speed (ACK requested)
+    // 0x9D (JV command): read the current velocity (ACK requested).
     cmd[2] = 0x9D;
-    cmd[3] = 0x00; // The transmission data length is 0.
+    cmd[3] = 0x00; // no payload data
   } else if (mode == "cpr") {
     cmd[2] = 0xBD;
     cmd[3] = 0x01;

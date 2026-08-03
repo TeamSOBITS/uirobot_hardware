@@ -100,6 +100,8 @@ private:
   bool toggle_torque_on_configure_{false};
   bool enable_torque_before_motion_{false};
 
+  int consecutive_read_failures_{0};
+
   std::unique_ptr<uirobot_driver::SerialPort> ser_;
 };
 }  // namespace uirobot_hardware

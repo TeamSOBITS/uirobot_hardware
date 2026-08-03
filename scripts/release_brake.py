@@ -2,7 +2,7 @@
 import serial
 import time
 import os
-import argparse  # Added to handle arguments.
+import argparse
 
 
 def modbus_crc16(data: bytes) -> int:
@@ -43,7 +43,7 @@ def main():
     parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
     parser.add_argument('--baud', type=int, default=115200, help="Baud rate")
     parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
-    args = parser.parse_known_args()[0] # 他の未知の引数があってもエラーにしない
+    args = parser.parse_known_args()[0]  # tolerate unknown extra arguments
 
     # Assign the parsed value (matching the type).
     port = str(args.port) if args.port else None
@@ -57,19 +57,18 @@ def main():
 
     expected_reply = bytes([
         0xAA,
-        device_id, 0x10, 0x03,  # Changed the magic number 0x05 to `device_id` so that it works even if the device ID changes.
+        device_id, 0x10, 0x03,  # use device_id instead of a hard-coded 0x05
         0x05, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xF3, 0x91,             # Note: Since the CRC changes when the ID changes, the checking method described below has been revised.
+        0xF3, 0x91,             # CRC changes with the ID; see the reply check below
         0xCC
     ])
 
     tx = build_packet(device_id)
 
     print("Sending:", hexdump(tx))
-    # Since the CRC of expected_reply remains a fixed value [0xF3, 0x91], the expected value is constructed based on the tx packet.
-    # Alternatively, it is more accurate to determine the success or failure of the response based on the length of the returned data and the command (0x10).
-    # Here, the code is output exactly as is, without altering its formatting.
+    # expected_reply keeps the fixed CRC [0xF3, 0x91], so it is only printed
+    # for reference; success is judged by length, header, ID and command below.
     print("Expect (Static):", hexdump(expected_reply))
 
     with serial.Serial(port, baud, timeout=1) as ser:
@@ -81,7 +80,8 @@ def main():
         rx = ser.read(16)
         print("Received:", hexdump(rx))
 
-        # To accommodate ID changes, the check is based on the length being 16 bytes and a match in the header, ID, and command, rather than using an exact match (==).
+        # Judge by length (16 bytes), header, ID and command instead of an
+        # exact match so the check works for any device ID.
         if len(rx) == 16 and rx[0] == 0xAA and rx[1] == device_id and rx[2] == 0x10:
             print(f"✅ Brake released successfully (ACK matched for ID {device_id})")
         else:
