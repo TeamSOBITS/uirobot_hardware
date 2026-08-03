@@ -38,17 +38,19 @@ def hexdump(data: bytes):
 
 
 def main():
+    # Configured to accept arguments with minimal changes.
     parser = argparse.ArgumentParser(description="Release Uirobot Brake")
     parser.add_argument('--port', type=str, default=os.environ.get('UM_PORT'), help="Serial port")
     parser.add_argument('--baud', type=int, default=115200, help="Baud rate")
     parser.add_argument('--id', type=int, default=5, help="Device (Node) ID")
     args = parser.parse_known_args()[0]  # tolerate unknown extra arguments
 
+    # Assign the parsed value (matching the type).
     port = str(args.port) if args.port else None
     baud = args.baud
     device_id = args.id
 
-    # Safety check: a serial port must be specified.
+    # Safety when no port is specified
     if not port or port == "None":
         print("❌ Error: Serial port is not specified. Please set UM_PORT or pass --port.")
         return

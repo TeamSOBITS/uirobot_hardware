@@ -476,19 +476,20 @@ hardware_interface::return_type UirobotHardware::write(const rclcpp::Time & /*ti
   bool target_changed = false;
   bool target_not_reached = false; 
 
+  // Loop processing for each joint
   for (size_t i = 0; i < joints_.size(); i++) {
 
     if (joint_modes_[i] == "JOG") {
       if (std::isnan(joints_[i].command.position) || std::isnan(joints_[i].command.velocity)) continue;
 
-      // Has the commanded target changed?
+      // Check if the command values themselves have changed
       if (std::isnan(joints_[i].prev_command.position) || 
           std::abs(joints_[i].command.position - joints_[i].prev_command.position) > 1e-6 ||
           std::abs(joints_[i].command.velocity - joints_[i].prev_command.velocity) > 1e-6) {
         target_changed = true;
       }
 
-      // Is the current position still outside stop_threshold of the target?
+      // Check if the current position has not yet reached the target value (within stop_threshold)
       double position_error = joints_[i].command.position - joints_[i].state.position;
       if (std::abs(position_error) >= joints_[i].stop_threshold) {
         target_not_reached = true;
@@ -637,12 +638,12 @@ CallbackReturn UirobotHardware::set_joint_positions(const rclcpp::Duration & /*p
 
       if (std::isnan(target_pos)) continue;
 
-      // Safety default when MoveIt sends no velocity command (NaN).
+      // Safety when no speed command (command.velocity) is received from MoveIt (NaN)
       if (std::isnan(target_vel) || target_vel <= 0.0) {
-        target_vel = joints_[i].max_vel; // fall back to the configured max velocity
+        target_vel = joints_[i].max_vel; // Set the maximum velocity from parameters as default
       }
 
-      // Clamp to hardware limits.
+      // Clamp to hardware limits
       if (std::isfinite(joints_[i].min_pos)) {
         target_pos = std::max(target_pos, joints_[i].min_pos);
       }

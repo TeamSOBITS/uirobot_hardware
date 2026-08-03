@@ -62,7 +62,7 @@ def decode_brake_state(packet: bytes, node_id: int) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read UIM342 internal brake state via UIM2513 gateway")
     parser.add_argument("--port", required=True, help="Serial port, e.g. /dev/ttyUSB2")
-    parser.add_argument("--baud", type=int, default=57600, help="Baud rate")
+    parser.add_argument("--baud", type=int, default=115200, help="Baud rate")
     parser.add_argument("--id", type=int, required=True, help="UIROBOT node id")
     parser.add_argument("--timeout", type=float, default=1.0, help="Read timeout in seconds")
     args = parser.parse_args()
