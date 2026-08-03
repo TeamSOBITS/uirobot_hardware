@@ -240,6 +240,9 @@ CallbackReturn UirobotHardware::on_configure(const rclcpp_lifecycle::State &)
 {
   RCLCPP_DEBUG(rclcpp::get_logger(kUirobotHardware), "configure");
 
+  // Reset the read() failure tolerance.
+  consecutive_read_failures_ = 0;
+
   for (uint i = 0; i < joints_.size(); i++) {
     if (std::isnan(joints_[i].state.position)) {
       joints_[i].state.position = 0.0;
@@ -339,15 +342,35 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     return return_type::OK;
   }
 
+  // Keep previous state on transient read failures; error out only after ~2 s (40 cycles).
+  constexpr int kMaxConsecutiveReadFailures = 40;
+  auto handle_read_failure = [this](const char * what, uint joint, size_t reply_size) {
+    ++consecutive_read_failures_;
+    if (consecutive_read_failures_ >= kMaxConsecutiveReadFailures) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger(kUirobotHardware),
+        "Failed to read %s for joint '%s' (reply size=%zu) %d times in a row, giving up",
+        what, info_.joints[joint].name.c_str(), reply_size, consecutive_read_failures_);
+      return return_type::ERROR;
+    }
+    RCLCPP_WARN(
+      rclcpp::get_logger(kUirobotHardware),
+      "Failed to read %s for joint '%s' (reply size=%zu), keeping previous state (%d/%d)",
+      what, info_.joints[joint].name.c_str(), reply_size,
+      consecutive_read_failures_, kMaxConsecutiveReadFailures);
+    return return_type::OK;
+  };
+
+  bool read_failed = false;
   for (uint i = 0; i < joint_ids_.size(); i++) {
     std::vector<uint8_t> cmd = create_commands("get_pos", joint_ids_[i]);
     std::vector<uint8_t> res = ser_->read_and_write(cmd);
     if (res.size() < 12) {
-      RCLCPP_ERROR(
-        rclcpp::get_logger(kUirobotHardware),
-        "Failed to read position for joint '%s' (reply size=%zu)",
-        info_.joints[i].name.c_str(), res.size());
-      return return_type::ERROR;
+      if (handle_read_failure("position", i, res.size()) == return_type::ERROR) {
+        return return_type::ERROR;
+      }
+      read_failed = true;
+      break;
     }
     const double position =
       (static_cast<float>(analyze_cmd(res, "get_pos")) / joints_[i].cpr * (2 * M_PI)) /
@@ -366,11 +389,11 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     std::vector<uint8_t> cmd_vel = create_commands("get_vel", joint_ids_[i]);
     std::vector<uint8_t> res_vel = ser_->read_and_write(cmd_vel);
     if (res_vel.size() < 8) {
-      RCLCPP_ERROR(
-        rclcpp::get_logger(kUirobotHardware),
-        "Failed to read velocity for joint '%s' (reply size=%zu)",
-        info_.joints[i].name.c_str(), res_vel.size());
-      return return_type::ERROR;
+      if (handle_read_failure("velocity", i, res_vel.size()) == return_type::ERROR) {
+        return return_type::ERROR;
+      }
+      read_failed = true;
+      break;
     }
     
     int32_t raw_velocity = analyze_cmd(res_vel, "get_vel");
@@ -387,6 +410,10 @@ return_type UirobotHardware::read(const rclcpp::Time &, const rclcpp::Duration &
     joints_[i].state.position = position;
     joints_[i].state.velocity = velocity;
     joints_[i].state.effort   = 0.0;
+  }
+
+  if (!read_failed) {
+    consecutive_read_failures_ = 0;
   }
 
   for (auto & joint : joints_) {
