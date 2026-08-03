@@ -57,7 +57,7 @@ def main() -> int:
     args = parser.parse_args()
 
     port = str(os.environ.get('UM_PORT'))
-    baud = 57600
+    baud = 115200
     device_id = 5
 
     tx = build_origin_packet(device_id)
